@@ -1,0 +1,2 @@
+# Root-only directory on mgmt01 where the portal stores each visitor's password
+guest_password_dir: /var/lib/lab-portal/passwords

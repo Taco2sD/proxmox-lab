@@ -13,6 +13,7 @@
   roles:
     - dhcp_server
     - ad_workstations
+    - ad_guest_users
 
 - name: mgmt01 - autoinstall host records and the runner itself
   hosts: mgmt01
