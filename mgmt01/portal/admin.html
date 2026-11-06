@@ -118,7 +118,7 @@ async function showMachines(user) {
   me = user || me;
   clearTimeout(timer);
   const r = await api("/api/admin/machines");
-  if (r.status === 401) return showLogin("Your session ended. Sign in again.");
+  if (r.status === 403) return showLogin("Your session ended. Sign in again.");
   if (r.ok) phaseNames = Object.fromEntries(r.data.phases);
   const rows = (r.data.machines || []).map(m => {
     const ph = m.phases || {};
@@ -162,7 +162,7 @@ $("#del-confirm").addEventListener("click", async () => {
   const r = await api("/api/admin/delete", { user: target.user });
   $("#del-confirm").disabled = false;
   $("#del").close();
-  if (r.status === 401) return showLogin("Your session ended. Sign in again.");
+  if (r.status === 403) return showLogin("Your session ended. Sign in again.");
   showMachines();
 });
 

@@ -136,6 +136,9 @@ SAMBA_CA = "/etc/ssl/certs/ca-certificates.crt"
 SESSION_KEY = Path("/etc/lab-portal/session-key")
 SESSION_SECONDS = 8 * 3600
 COOKIE = "lab_admin"
+# Never answer 401 here: the VPS in front uses HTTP Basic auth, and a browser that
+# gets a 401 for a request carrying those credentials forgets them, so the next
+# request is challenged for the demo password again. "Not signed in" is 403.
 
 
 def ad_admin_login(username, password):
@@ -283,10 +286,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, ADMIN_PAGE, "text/html")
         if url.path == "/api/admin/me":
             user = self.admin()
-            return self.send(200, {"user": user}) if user else self.send(401, {"error": "sign in"})
+            return self.send(200, {"user": user}) if user else self.send(403, {"error": "sign in"})
         if url.path == "/api/admin/machines":
             if not self.admin():
-                return self.send(401, {"error": "sign in"})
+                return self.send(403, {"error": "sign in"})
             return self.send(200, {"machines": all_guests(), "phases": [p[:2] for p in PHASES]})
         if url.path == "/healthz":
             return self.send(200, "ok\n", "text/plain")
@@ -357,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(503, {"error": "Couldn't reach the domain controller."})
             print(f"admin login {user!r}: {'ok' if ok else 'refused'}", flush=True)
             if not ok:
-                return self.send(401, {"error": "Wrong username or password, or not a lab admin."})
+                return self.send(403, {"error": "Wrong username or password, or not a lab admin."})
             cookie = (f"{COOKIE}={session_cookie(user)}; Path=/; Max-Age={SESSION_SECONDS}; "
                       "Secure; HttpOnly; SameSite=Strict")
             return self.send(200, {"user": user}, headers=[("Set-Cookie", cookie)])
@@ -366,7 +369,7 @@ class Handler(BaseHTTPRequestHandler):
                              headers=[("Set-Cookie", f"{COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict")])
         admin = self.admin()
         if not admin:
-            return self.send(401, {"error": "sign in"})
+            return self.send(403, {"error": "sign in"})
         if path == "/api/admin/delete":
             user = str(body.get("user", ""))
             if not any(m["user"] == user for m in all_guests()):
