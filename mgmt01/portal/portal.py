@@ -236,7 +236,12 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 print(f"connect failed for {m['user']}: {e!r}", flush=True)
                 return self.send(500, {"error": "Couldn't create the connection."})
-            return self.send(200, {"url": "/guacamole/?data=" + quote(data, safe="")})
+            # Straight to the connection's own page. Guacamole's home page only jumps into
+            # a lone connection on a fresh login; with a session already open it shows
+            # "No recent connections". The id is Guacamole's own client identifier:
+            # base64 of "<connection>\0c\0<data source>".
+            client = base64.b64encode(f"{m['host']}\0c\0json".encode()).decode()
+            return self.send(200, {"url": f"/guacamole/#/client/{client}?data=" + quote(data, safe="")})
         self.send(404, {"error": "not found"})
 
     def create(self, user, role):
