@@ -1,0 +1,6 @@
+# A restart (not a reload) so dnsmasq rereads its config files; it then replays
+# existing leases through the DNS hook.
+- name: Restart dnsmasq
+  ansible.builtin.systemd_service:
+    name: dnsmasq
+    state: restarted

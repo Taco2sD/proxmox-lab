@@ -1,0 +1,4 @@
+autoinstall_web: /var/www/html/autoinstall
+# Read on mgmt01 (the runner), never stored in the repo:
+autoinstall_pwhash_file: /root/provision/labadmin.hash   # labadmin's SHA-512 crypt hash
+autoinstall_sshkey_file: /root/pvelab.pub                # the lab's public SSH key

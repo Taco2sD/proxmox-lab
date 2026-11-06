@@ -1,0 +1,18 @@
+# Everything the workstation fleet needs outside the VMs themselves, generated from
+# inventory/workstations.yml. Run on mgmt01 through `lab apply` (see mgmt01/lab).
+#
+# Deleting things is opt-in: AD accounts and host records of workstations that are
+# no longer in the inventory are only removed with -e prune=true (`lab prune`).
+
+- name: dc01 - DHCP server and AD computer accounts
+  hosts: dc01
+  vars_files: [../inventory/workstations.yml]
+  roles:
+    - dhcp_server
+    - ad_workstations
+
+- name: mgmt01 - autoinstall host records and the runner itself
+  hosts: mgmt01
+  vars_files: [../inventory/workstations.yml]
+  roles:
+    - autoinstall_records

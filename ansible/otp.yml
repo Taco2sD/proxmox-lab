@@ -1,0 +1,45 @@
+# A fresh one-time AD join password for one workstation:
+#   1. generated on mgmt01 (never written to the repo or the logs)
+#   2. set on the workstation's computer account on dc01
+#   3. published at /autoinstall/<host>/otp, which nginx serves only to the host's own IP
+# The installed machine joins with it once and replaces it with its own password.
+#
+# Usage (normally via `lab apply` / `lab reimage`):
+#   ansible-playbook -i ansible/infra/hosts.yml ansible/otp.yml -e host=ws03
+
+- name: Generate the one-time password
+  hosts: mgmt01
+  gather_facts: false
+  vars_files: [../inventory/workstations.yml]
+  tasks:
+    - name: The host must be in the inventory
+      ansible.builtin.assert:
+        that: host in workstations
+        fail_msg: "{{ host }} is not in inventory/workstations.yml"
+
+    - name: Random password
+      ansible.builtin.set_fact:
+        otp: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=24) }}"
+      no_log: true
+
+- name: dc01 - set it on the computer account
+  hosts: dc01
+  gather_facts: false
+  tasks:
+    - name: Reset {{ host }}$ to the one-time password
+      ansible.builtin.command:
+        argv: [samba-tool, user, setpassword, "{{ host }}$", "--newpassword={{ hostvars['mgmt01'].otp }}"]
+      no_log: true
+
+- name: mgmt01 - publish it for the host's own IP
+  hosts: mgmt01
+  gather_facts: false
+  tasks:
+    - name: Write /autoinstall/{{ host }}/otp
+      ansible.builtin.copy:
+        dest: "/var/www/html/autoinstall/{{ host }}/otp"
+        content: "{{ otp }}\n"
+        owner: root
+        group: www-data
+        mode: "0640"
+      no_log: true
