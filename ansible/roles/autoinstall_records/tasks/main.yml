@@ -11,7 +11,7 @@
 - name: user-data from mgmt01/template.yaml
   ansible.builtin.copy:
     dest: "{{ autoinstall_web }}/{{ item }}/user-data"
-    content: >-
+    content: >
       {{ lookup('ansible.builtin.file', playbook_dir ~ '/../mgmt01/template.yaml')
          | replace('__HOSTNAME__', item)
          | replace('__PWHASH__', lookup('ansible.builtin.file', autoinstall_pwhash_file) | trim)
