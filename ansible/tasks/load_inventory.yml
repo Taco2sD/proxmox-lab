@@ -1,0 +1,11 @@
+# Shared by infra.yml and otp.yml: the full list of workstations is
+# inventory/workstations.yml (loaded with vars_files) plus inventory/guests/*.yml.
+- name: Load guest machines (inventory/guests/*.yml)
+  ansible.builtin.include_vars:
+    dir: "{{ playbook_dir }}/../inventory/guests"
+    files_matching: '\.yml$'
+    name: guest_machines
+
+- name: Merge them into the workstation list
+  ansible.builtin.set_fact:
+    workstations: "{{ workstations | combine(guest_machines | default({})) }}"

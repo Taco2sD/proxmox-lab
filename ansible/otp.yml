@@ -11,6 +11,8 @@
   hosts: mgmt01
   gather_facts: false
   vars_files: [../inventory/workstations.yml]
+  pre_tasks:
+    - ansible.builtin.import_tasks: tasks/load_inventory.yml
   tasks:
     - name: The host must be in the inventory
       ansible.builtin.assert:

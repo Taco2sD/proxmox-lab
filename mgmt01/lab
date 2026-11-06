@@ -18,8 +18,14 @@ export ANSIBLE_CONFIG="$REPO/ansible.cfg"
 
 ap() { ansible-playbook -i ansible/infra/hosts.yml "$@"; }
 tf() { tofu -chdir=terraform "$@"; }
-inventory_hosts() {
-  python3 -c 'import yaml; print("\n".join(sorted(yaml.safe_load(open("inventory/workstations.yml"))["workstations"])))'
+inventory_hosts() {   # workstations.yml + inventory/guests/*.yml
+  python3 - <<'PY'
+import glob, yaml
+hosts = set(yaml.safe_load(open("inventory/workstations.yml"))["workstations"])
+for f in glob.glob("inventory/guests/*.yml"):
+    hosts |= set((yaml.safe_load(open(f)) or {}).keys())
+print("\n".join(sorted(hosts)))
+PY
 }
 vm_hosts() {
   tf state list 2>/dev/null | sed -n 's/^proxmox_virtual_environment_vm\.workstation\["\(.*\)"\]$/\1/p' | sort

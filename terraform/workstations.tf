@@ -1,5 +1,12 @@
 locals {
-  workstations = yamldecode(file("${path.module}/../inventory/workstations.yml")).workstations
+  inventory = "${path.module}/../inventory"
+
+  # Hand-maintained workstations, plus one file per machine requested through the
+  # self-service portal (inventory/guests/<host>.yml).
+  workstations = merge(
+    yamldecode(file("${local.inventory}/workstations.yml")).workstations,
+    [for f in fileset("${local.inventory}/guests", "*.yml") : yamldecode(file("${local.inventory}/guests/${f}"))]...
+  )
 }
 
 # One VM per inventory entry. The VM is only the hardware: the disk starts blank,
