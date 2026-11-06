@@ -228,7 +228,7 @@ function tile(token, m) {
     el("button", { class: "ghost", "aria-label": "More actions", "aria-haspopup": "menu",
                    onclick: e => { e.stopPropagation(); closeMenus(menu); menu.classList.toggle("open"); } }, "⋯"), menu);
   t.append(el("div", { class: "tile-foot" },
-    el("button", { class: "primary", disabled: m.state !== "ready", onclick: () => showInfo(token, true) }, "Connect"), more));
+    el("button", { class: "primary", disabled: m.state !== "ready", title: "Open a terminal in a new tab", onclick: () => connect(token) }, "Connect"), more));
   return t;
 }
 function closeMenus(except) { document.querySelectorAll(".menu.open").forEach(m => m !== except && m.classList.remove("open")); }
@@ -304,7 +304,18 @@ $("#add-form").addEventListener("submit", async e => {
   refresh();
 });
 
-// ---------------------------------------------------------------- Connect / Details
+// ---------------------------------------------------------------- Connect
+// The tab opens on the click itself (pop-up blockers allow that), then gets its address:
+// a 60-second, encrypted Guacamole login that opens an SSH session to the machine.
+async function connect(token) {
+  const tab = window.open("about:blank", "_blank");
+  const r = await api("/api/connect", { token, method: "POST" });
+  if (r.ok && tab) { tab.location = r.data.url; return; }
+  if (tab) tab.close();
+  toast(r.data.error || "Couldn't open the terminal");
+}
+
+// ---------------------------------------------------------------- Details
 function showInfo(token, connect = false) {
   const m = machines.get(token); if (!m) return;
   let shown = false;
@@ -324,7 +335,7 @@ function showInfo(token, connect = false) {
         el("button", { class: "ghost", onclick: () => copy(m.password, "Password") }, "Copy")));
   }
   $("#info-note").textContent = m.state === "ready"
-    ? "A terminal in the browser is coming next. Until then, lab admins can connect with: ssh -J mgmt01 " + m.user + "@" + m.ip
+    ? "Connect opens a terminal in your browser, already logged in. Lab admins can also use: ssh -J mgmt01 " + m.user + "@" + m.ip
     : "";
   $("#info").showModal();
 }

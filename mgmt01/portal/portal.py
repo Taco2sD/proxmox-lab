@@ -15,7 +15,9 @@ up in access logs. Only a hash of the token is stored on disk.
 
 Standard library only, so there is nothing to install or keep updated.
 """
+import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -24,7 +26,7 @@ import string
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 STATE = Path("/var/lib/lab-portal")
 REQUESTS, MACHINES, PASSWORDS = STATE / "requests", STATE / "machines", STATE / "passwords"
@@ -121,6 +123,34 @@ def new_password():
             return pw
 
 
+JSON_KEY = Path("/etc/lab-portal/json-secret-key")   # shared with Guacamole (guacamole.env)
+
+
+def guacamole_login(m):
+    """A Guacamole JSON-auth login for one SSH connection to the visitor's machine,
+    valid for 60 seconds. Same steps as Guacamole's reference encrypt-json.sh:
+    HMAC-SHA256 the JSON with the key, prepend the signature, AES-128-CBC with a zero IV
+    (PKCS#7 padding), base64."""
+    from cryptography.hazmat.primitives import padding                  # python3-cryptography
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    key = bytes.fromhex(JSON_KEY.read_text().strip())
+    payload = json.dumps({
+        "username": m["user"],
+        "expires": int((time.time() + 60) * 1000),                     # milliseconds
+        "connections": {m["host"]: {"protocol": "ssh", "parameters": {
+            "hostname": m["ip"], "port": "22", "username": m["user"],
+            "password": (PASSWORDS / m["user"]).read_text(),
+            "color-scheme": "gray-black", "font-size": "11",
+        }}},
+    }).encode()
+    signed = hmac.new(key, payload, hashlib.sha256).digest() + payload
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(signed) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(bytes(16))).encryptor()
+    return base64.b64encode(encryptor.update(padded) + encryptor.finalize()).decode()
+
+
 def public_view(m):
     """What the browser gets: no token hash, the password only once the machine is ready."""
     view = {k: m.get(k) for k in ("user", "role", "host", "ip", "state", "error", "phases")}
@@ -195,6 +225,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.create(str(body.get("username", "")).strip().lower(), str(body.get("role", "")))
         if self.path == "/api/delete":
             return self.delete(self.token())
+        if self.path == "/api/connect":
+            m = find(self.token())
+            if not m:
+                return self.send(404, {"error": "not found"})
+            if m.get("state") != "ready":
+                return self.send(409, {"error": "The workstation isn't ready yet."})
+            try:
+                data = guacamole_login(m)
+            except Exception as e:
+                print(f"connect failed for {m['user']}: {e!r}", flush=True)
+                return self.send(500, {"error": "Couldn't create the connection."})
+            return self.send(200, {"url": "/guacamole/?data=" + quote(data, safe="")})
         self.send(404, {"error": "not found"})
 
     def create(self, user, role):

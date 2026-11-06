@@ -78,6 +78,56 @@
         insertafter: "include snippets/autoinstall-otp.conf;"
       notify: Reload nginx
 
+    # ------------------------------------------------ Apache Guacamole (Connect button)
+    # Docker in this unprivileged container needs the LXC features nesting=1,keyctl=1
+    # (set on pve01: pct set 106 --features nesting=1,keyctl=1).
+    - name: Docker, Compose, and AES for the portal's signed logins
+      ansible.builtin.apt:
+        name: [docker.io, docker-compose-v2, python3-cryptography]
+        state: present
+
+    - name: Config directory
+      ansible.builtin.file:
+        path: /etc/lab-portal/guacamole
+        state: directory
+        mode: "0755"
+
+    # Shared secret for Guacamole's JSON auth: 128 bits as 32 hex digits. Created once;
+    # the portal (group labportal) signs with it, the container reads it from the env file.
+    - name: JSON auth key (created once)
+      ansible.builtin.shell: |
+        umask 027
+        openssl rand -hex 16 > /etc/lab-portal/json-secret-key
+        chgrp labportal /etc/lab-portal/json-secret-key
+      args:
+        creates: /etc/lab-portal/json-secret-key
+
+    - name: Read the key
+      ansible.builtin.slurp:
+        src: /etc/lab-portal/json-secret-key
+      register: json_key
+      no_log: true
+
+    - name: Guacamole's environment file
+      ansible.builtin.copy:
+        content: "JSON_SECRET_KEY={{ json_key.content | b64decode | trim }}\n"
+        dest: /etc/lab-portal/guacamole.env
+        mode: "0600"
+      no_log: true
+      notify: Recreate Guacamole
+
+    - name: Compose file
+      ansible.builtin.copy:
+        src: "{{ src }}/guacamole-compose.yml"
+        dest: /etc/lab-portal/guacamole/compose.yml
+        mode: "0644"
+      notify: Recreate Guacamole
+
+    - name: Guacamole running
+      ansible.builtin.command: docker compose -f /etc/lab-portal/guacamole/compose.yml up -d
+      register: compose_up
+      changed_when: "'Started' in compose_up.stderr or 'Created' in compose_up.stderr"
+
     - name: Start both services at boot
       ansible.builtin.systemd_service:
         name: "{{ item }}"
@@ -96,3 +146,7 @@
 
     - name: Reload nginx
       ansible.builtin.shell: nginx -t && systemctl reload nginx
+
+    # Docker reads environment variables only when a container is created
+    - name: Recreate Guacamole
+      ansible.builtin.command: docker compose -f /etc/lab-portal/guacamole/compose.yml up -d --force-recreate
