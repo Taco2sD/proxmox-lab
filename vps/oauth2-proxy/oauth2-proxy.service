@@ -1,0 +1,18 @@
+# /etc/systemd/system/oauth2-proxy.service on the VPS (see oauth2-proxy.cfg)
+[Unit]
+Description=oauth2-proxy (sign-in gate for the lab)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=oauth2-proxy
+Group=oauth2-proxy
+ExecStart=/usr/local/bin/oauth2-proxy --config /etc/oauth2-proxy/oauth2-proxy.cfg
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

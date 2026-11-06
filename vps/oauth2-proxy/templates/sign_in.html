@@ -1,0 +1,54 @@
+{{define "sign_in.html"}}<!doctype html>
+<!-- oauth2-proxy sign-in page for the lab (vps/oauth2-proxy/), styled like the portal.
+     Local accounts only: the form posts username + password to {{.ProxyPrefix}}/sign_in,
+     which checks them against a bcrypt htpasswd file. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign in · Lab</title>
+<style>
+:root { --bg:#f5f6f8; --card:#fff; --text:#1b2130; --muted:#5f6878; --line:#dfe3ea; --soft:#eef1f6;
+        --accent:#2f5bea; --accent-text:#fff; --bad:#c03636;
+        --shadow:0 1px 2px rgba(20,30,50,.06), 0 8px 24px rgba(20,30,50,.06); }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#12151b; --card:#1b1f27; --text:#e7eaf0; --muted:#9aa3b3; --line:#2c323d; --soft:#232833;
+          --accent:#7d9cff; --accent-text:#0d1220; --bad:#ff7b7b;
+          --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25); } }
+* { box-sizing:border-box; }
+html, body { height:100%; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+       display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px 16px; }
+.card { width:100%; max-width:400px; background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:28px; }
+.brand { display:flex; align-items:center; gap:10px; font-weight:600; font-size:.9rem; color:var(--muted); margin-bottom:22px; }
+.mark { width:28px; height:28px; border-radius:8px; background:var(--accent); display:grid; place-items:center; }
+.mark::after { content:""; width:12px; height:12px; border:2px solid var(--accent-text); border-radius:3px; }
+h1 { font-size:1.5rem; margin:0 0 6px; letter-spacing:-.01em; }
+p.lead { color:var(--muted); margin:0 0 20px; font-size:.95rem; }
+label { display:block; font-weight:600; margin:14px 0 6px; font-size:.95rem; }
+input { width:100%; padding:11px 12px; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+input:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+button { width:100%; margin-top:22px; font:inherit; font-weight:600; border-radius:8px; padding:11px 16px; cursor:pointer;
+         border:1px solid transparent; background:var(--accent); color:var(--accent-text); }
+.error { color:var(--bad); background:var(--soft); border-radius:8px; padding:10px 12px; font-size:.9rem; margin:0 0 6px; }
+.foot { color:var(--muted); font-size:.8rem; margin-top:18px; text-align:center; }
+</style></head>
+<body>
+  <main class="card">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>Radically Decent · Lab</div>
+    <h1>Sign in</h1>
+    <p class="lead">This lab is private. Sign in with the account you were given.</p>
+    {{ if eq .StatusCode 400 401 }}<p class="error" role="alert">That username and password didn't work. Try again.</p>{{ end }}
+    {{ if .CustomLogin }}
+    <form method="POST" action="{{.ProxyPrefix}}/sign_in">
+      <input type="hidden" name="rd" value="{{.Redirect}}">
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+    {{ end }}
+  </main>
+  <p class="foot">Proxmox · Active Directory · Ansible · OpenTofu</p>
+</body></html>
+{{end}}

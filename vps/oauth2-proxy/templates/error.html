@@ -1,0 +1,35 @@
+{{define "error.html"}}<!doctype html>
+<!-- oauth2-proxy error page for the lab, styled like the portal (vps/oauth2-proxy/). -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{.Title}} · Lab</title>
+<style>
+:root { --bg:#f5f6f8; --card:#fff; --text:#1b2130; --muted:#5f6878; --line:#dfe3ea;
+        --accent:#2f5bea; --accent-text:#fff;
+        --shadow:0 1px 2px rgba(20,30,50,.06), 0 8px 24px rgba(20,30,50,.06); }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#12151b; --card:#1b1f27; --text:#e7eaf0; --muted:#9aa3b3; --line:#2c323d;
+          --accent:#7d9cff; --accent-text:#0d1220;
+          --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25); } }
+* { box-sizing:border-box; }
+html, body { height:100%; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+       display:flex; align-items:center; justify-content:center; padding:24px 16px; }
+.card { width:100%; max-width:440px; background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:28px; }
+.code { color:var(--muted); font-weight:600; font-size:.85rem; margin:0 0 4px; }
+h1 { font-size:1.4rem; margin:0 0 8px; }
+p { color:var(--muted); margin:0 0 20px; }
+a.button { display:inline-block; font-weight:600; border-radius:8px; padding:10px 16px; text-decoration:none; background:var(--accent); color:var(--accent-text); }
+.id { font-size:.75rem; color:var(--muted); margin-top:18px; font-family:ui-monospace, Consolas, monospace; }
+</style></head>
+<body>
+  <main class="card">
+    <p class="code">Error {{.StatusCode}}</p>
+    <h1>{{.Title}}</h1>
+    {{ if .Message }}<p>{{.Message}}</p>{{ end }}
+    <a class="button" href="{{.ProxyPrefix}}/sign_in{{ if .Redirect }}?rd={{.Redirect}}{{ end }}">Back to sign in</a>
+    {{ if .RequestID }}<div class="id">Request ID {{.RequestID}}</div>{{ end }}
+  </main>
+</body></html>
+{{end}}
