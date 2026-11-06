@@ -10,3 +10,4 @@ workstations:
   ws01: { vmid: 121, mac: "BC:24:11:00:00:21", ip: 10.10.10.21, role: artist }
   ws02: { vmid: 122, mac: "BC:24:11:00:00:22", ip: 10.10.10.22, role: programmer }
   ws03: { vmid: 123, mac: "BC:24:11:00:00:23", ip: 10.10.10.23, role: programmer }
+  ws04: { vmid: 124, mac: "BC:24:11:00:00:24", ip: 10.10.10.24, role: artist }
