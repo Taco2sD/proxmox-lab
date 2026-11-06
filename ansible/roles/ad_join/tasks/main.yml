@@ -86,10 +86,23 @@
   ansible.builtin.set_fact:
     ad_groups: "{{ (((ad_lookup.stdout | default('', true)) or '{}') | from_json).groups | default([]) }}"
 
+- name: Is this a guest machine from the portal? (inventory/guests/<hostname>.yml)
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../inventory/guests/{{ ansible_facts.hostname }}.yml"
+  register: guest_file
+
+- name: Its owner (the only regular user allowed to log in on it)
+  ansible.builtin.set_fact:
+    guest_owner: "{{ (lookup('ansible.builtin.file', guest_file.stat.path) | from_yaml)[ansible_facts.hostname].owner }}"
+  when: guest_file.stat.exists
+
 - name: Work out which AD user groups may log in here
   ansible.builtin.set_fact:
+    # Guest machines: only the owner (simple_allow_users) and the admins.
+    # Regular workstations: the admins plus the user groups for the machine's role.
     ad_login_groups: >-
-      {{ ad_admin_groups
+      {{ ad_admin_groups if guest_owner is defined else
+         ad_admin_groups
          + (ad_groups
             | select('in', role_login_groups)
             | map('extract', role_login_groups) | flatten) }}
@@ -124,6 +137,18 @@
 - name: Create home directories on first login
   ansible.builtin.command: pam-auth-update --enable mkhomedir
   when: mkhomedir.rc != 0
+
+- name: Password SSH logins only from mgmt01 (Guacamole), keys only for everyone else
+  ansible.builtin.copy:
+    # 99- so it is read last: a Match block captures every directive after it, and
+    # cloud-init's global "PasswordAuthentication no" must stay outside the block.
+    dest: /etc/ssh/sshd_config.d/99-guacamole.conf
+    content: |
+      # Managed by Ansible (ad_join role)
+      Match Address 10.10.10.6
+          PasswordAuthentication yes
+    mode: "0644"
+  notify: Reload sshd
 
 - name: sudo for workstation admins
   ansible.builtin.copy:
