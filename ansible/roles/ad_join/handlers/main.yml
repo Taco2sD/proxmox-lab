@@ -5,5 +5,8 @@
 
 # Validate the whole sshd configuration before reloading; a broken config would
 # lock everyone out of SSH on the next restart.
+# try-reload-or-restart: Ubuntu starts ssh.service on demand (ssh.socket), so it is
+# often not running; a plain reload then fails. If it isn't running, the next
+# connection starts it with the new config anyway.
 - name: Reload sshd
-  ansible.builtin.shell: sshd -t && systemctl reload ssh
+  ansible.builtin.shell: sshd -t && systemctl try-reload-or-restart ssh
