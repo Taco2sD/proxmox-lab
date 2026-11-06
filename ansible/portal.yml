@@ -54,29 +54,78 @@
       loop: [lab-portal.service, lab-portal-worker.service]
       notify: Restart portal
 
-    - name: nginx site (port 8080) and the /lab-events/ snippet
+    # ------------------------------------------------ certificate (HTTPS everywhere)
+    # Let's Encrypt for lab.radicallydecent.com by DNS-01 through acme-dns on the VPS
+    # (vps/README.md). The account in /etc/lab-portal/acme-dns/lab.json can only set
+    # that name's challenge record; it is copied here by hand, never committed.
+    - name: certbot
+      ansible.builtin.apt:
+        name: certbot
+        state: present
+
+    - name: acme-dns hook
+      ansible.builtin.copy:
+        src: "{{ src }}/certbot-acme-dns-hook"
+        dest: /usr/local/sbin/certbot-acme-dns-hook
+        mode: "0755"
+
+    - name: Its settings (acme-dns API on the VPS, account directory)
+      ansible.builtin.copy:
+        content: |
+          ACMEDNS_API=https://acme-ns.radicallydecent.com
+          ACMEDNS_ACCOUNTS=/etc/lab-portal/acme-dns
+        dest: /etc/default/certbot-acme-dns
+        mode: "0644"
+
+    - name: The acme-dns account must be in place
+      ansible.builtin.stat:
+        path: /etc/lab-portal/acme-dns/lab.json
+      register: lab_acct
+      failed_when: not lab_acct.stat.exists
+
+    - name: Certificate for lab.radicallydecent.com (certbot.timer renews it)
+      ansible.builtin.command: >-
+        certbot certonly --non-interactive --agree-tos --email jesse@radicallydecent.com
+        --manual --preferred-challenges dns
+        --manual-auth-hook /usr/local/sbin/certbot-acme-dns-hook
+        --deploy-hook "systemctl reload nginx"
+        --cert-name lab.radicallydecent.com -d lab.radicallydecent.com
+      args:
+        creates: /etc/letsencrypt/live/lab.radicallydecent.com/fullchain.pem
+
+    # ------------------------------------------------ nginx: HTTPS sites, HTTP for the ISO only
+    - name: nginx snippets and sites
       ansible.builtin.copy:
         src: "{{ src }}/{{ item.src }}"
         dest: "{{ item.dest }}"
         mode: "0644"
       loop:
-        - { src: nginx-lab-portal.conf, dest: /etc/nginx/sites-available/lab-portal }
+        - { src: nginx-lab-tls.conf, dest: /etc/nginx/snippets/lab-tls.conf }
+        - { src: nginx-lab-portal-locations.conf, dest: /etc/nginx/snippets/lab-portal-locations.conf }
         - { src: nginx-lab-events.conf, dest: /etc/nginx/snippets/lab-events.conf }
+        - { src: nginx-lab-portal.conf, dest: /etc/nginx/sites-available/lab-portal }
+        - { src: nginx-lab-boot.conf, dest: /etc/nginx/sites-available/lab-boot }
       notify: Reload nginx
 
-    - name: Enable the site
+    - name: Enable the HTTPS site and the ISO-only HTTP site
       ansible.builtin.file:
-        src: /etc/nginx/sites-available/lab-portal
-        dest: /etc/nginx/sites-enabled/lab-portal
+        src: "/etc/nginx/sites-available/{{ item }}"
+        dest: "/etc/nginx/sites-enabled/{{ item }}"
         state: link
+      loop: [lab-portal, lab-boot]
       notify: Reload nginx
 
-    - name: Include the snippet in the default server
-      ansible.builtin.lineinfile:
-        path: /etc/nginx/sites-available/default
-        line: "\tinclude snippets/lab-events.conf;"
-        insertafter: "include snippets/autoinstall-otp.conf;"
+    - name: Retire the old plain-HTTP default site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
       notify: Reload nginx
+
+    - name: PXE boot menu (install records over HTTPS)
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../mgmt01/tftp-grub.cfg"
+        dest: /srv/tftp/grub/grub.cfg
+        mode: "0644"
 
     # ------------------------------------------------ Apache Guacamole (Connect button)
     # Docker in this unprivileged container needs the LXC features nesting=1,keyctl=1
@@ -150,3 +199,23 @@
     # Docker reads environment variables only when a container is created
     - name: Recreate Guacamole
       ansible.builtin.command: docker compose -f /etc/lab-portal/guacamole/compose.yml up -d --force-recreate
+
+# The portal's name resolves to mgmt01 inside the lab, so lab machines (and installers)
+# use the same HTTPS name and certificate as visitors on the internet, where the name
+# points at the VPS.
+- name: dc01 - lab.radicallydecent.com inside the lab
+  hosts: dc01
+  tasks:
+    - name: Zone lab.radicallydecent.com in AD DNS
+      ansible.builtin.shell: |
+        samba-tool dns zonelist 127.0.0.1 -P | grep -q "pszZoneName *: lab.radicallydecent.com$" && exit 0
+        samba-tool dns zonecreate 127.0.0.1 lab.radicallydecent.com -P && echo created
+      register: zone
+      changed_when: "'created' in zone.stdout"
+
+    - name: lab.radicallydecent.com -> mgmt01
+      ansible.builtin.shell: |
+        samba-tool dns query 127.0.0.1 lab.radicallydecent.com @ A -P 2>/dev/null | grep -q "A: 10.10.10.6" && exit 0
+        samba-tool dns add 127.0.0.1 lab.radicallydecent.com @ A 10.10.10.6 -P && echo added
+      register: rec
+      changed_when: "'added' in rec.stdout"

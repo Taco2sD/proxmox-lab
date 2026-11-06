@@ -30,7 +30,7 @@ autoinstall:
     - curtin in-target -- systemctl enable qemu-guest-agent
     # The AD one-time join password. nginx serves it only to this host's own
     # reserved IP; it is used once by the ad_join role, then deleted.
-    - curtin in-target -- sh -c 'umask 077; curl -fsS http://10.10.10.6/autoinstall/__HOSTNAME__/otp -o /etc/ad-join-otp'
+    - curtin in-target -- sh -c 'umask 077; curl -fsS https://lab.radicallydecent.com/autoinstall/__HOSTNAME__/otp -o /etc/ad-join-otp'
   # cloud-config for the installed system's first boot: enroll in config management.
   # From then on the ansible-pull timer (installed by the base role) takes over.
   user-data:
