@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ansible-pull every {{ pull_interval }}
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ pull_interval }}
+# Spread runs out so a whole fleet doesn't hit the git server at the same second
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

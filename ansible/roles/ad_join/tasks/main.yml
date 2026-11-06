@@ -1,0 +1,137 @@
+- name: Packages for AD membership (adcli joins, SSSD handles logins, ldap-utils for the fact)
+  ansible.builtin.apt:
+    # bind9-dnsutils: dig/host/nsupdate for troubleshooting. (Clients don't register
+    # DNS themselves; the DHCP server on dc01 does.)
+    name: [adcli, sssd-ad, sssd-tools, krb5-user, libnss-sss, libpam-sss, ldap-utils,
+           libsasl2-modules-gssapi-mit, bind9-dnsutils]
+    state: present
+
+- name: Kerberos client config (finds the KDC through DNS SRV records)
+  ansible.builtin.template:
+    src: krb5.conf.j2
+    dest: /etc/krb5.conf
+    mode: "0644"
+
+# ---- Join (only once) -------------------------------------------------------
+
+- name: Are we joined? (the keytab holds our machine principal after a join)
+  ansible.builtin.command: klist -k /etc/krb5.keytab
+  register: keytab
+  changed_when: false
+  failed_when: false
+  check_mode: false   # read-only probe: run it even in --check, or dry runs think we're not joined
+
+- name: Join the domain with the pre-staged one-time password
+  when: ((ansible_facts.hostname | upper) ~ '$@' ~ ad_realm) not in keytab.stdout
+  block:
+    - name: Look for the one-time password dropped at provisioning time
+      ansible.builtin.stat:
+        path: /etc/ad-join-otp
+      register: otp_file
+
+    - name: Stop with a clear message if there is nothing to join with
+      ansible.builtin.fail:
+        msg: >-
+          Not joined and no /etc/ad-join-otp. Pre-stage the computer on the DC
+          (adcli preset-computer --one-time-password=...) and put that password in
+          /etc/ad-join-otp (mode 600).
+      when: not otp_file.stat.exists
+
+    - name: Read the one-time password
+      ansible.builtin.slurp:
+        src: /etc/ad-join-otp
+      register: otp
+      no_log: true
+
+    - name: Join (sets the machine's own password, writes /etc/krb5.keytab, registers SPNs)
+      ansible.builtin.command:
+        argv:
+          - adcli
+          - join
+          - --domain={{ ad_domain }}
+          - --host-fqdn={{ ansible_facts.hostname }}.{{ ad_domain }}
+          - --one-time-password={{ otp.content | b64decode | trim }}
+      no_log: true
+
+    - name: Remove the one-time password (already used up; nothing secret should linger)
+      ansible.builtin.file:
+        path: /etc/ad-join-otp
+        state: absent
+
+# ---- Which roles does AD give this machine? ---------------------------------
+
+- name: Directory for local facts (Ansible runs every executable here during fact gathering)
+  ansible.builtin.file:
+    path: /etc/ansible/facts.d
+    state: directory
+    mode: "0755"
+
+- name: Local fact that asks AD which groups this computer belongs to
+  ansible.builtin.template:
+    src: ad.fact.j2
+    dest: /etc/ansible/facts.d/ad.fact
+    mode: "0755"
+
+# Run the lookup directly instead of relying on Ansible's local-facts refresh:
+# a fresh answer right after a join, identical in --check runs, one source of truth.
+# (The script stays in facts.d too, so `ansible -m setup` shows it for ad-hoc checks.)
+- name: Ask AD which groups this computer belongs to (as the machine account)
+  ansible.builtin.command: /etc/ansible/facts.d/ad.fact
+  register: ad_lookup
+  changed_when: false
+  failed_when: false  # e.g. a --check run on a not-yet-joined machine: no script yet
+  check_mode: false   # read-only
+
+- name: Remember the answer for the rest of the play (role selection in local.yml)
+  ansible.builtin.set_fact:
+    ad_groups: "{{ (((ad_lookup.stdout | default('', true)) or '{}') | from_json).groups | default([]) }}"
+
+- name: Work out which AD user groups may log in here
+  ansible.builtin.set_fact:
+    ad_login_groups: >-
+      {{ ad_admin_groups
+         + (ad_groups
+            | select('in', role_login_groups)
+            | map('extract', role_login_groups) | flatten) }}
+
+# ---- Logins -----------------------------------------------------------------
+
+- name: SSSD config (RFC2307 IDs from AD, only allowed groups may log in)
+  ansible.builtin.template:
+    src: sssd.conf.j2
+    dest: /etc/sssd/sssd.conf
+    # Match what sssd.service enforces on every start (it runs as user sssd and
+    # chowns root:sssd + g+r). Writing 0600 here would cause a change on every
+    # run, and a needless SSSD restart every 30 minutes.
+    owner: root
+    group: sssd
+    mode: "0640"
+  notify: Restart sssd
+
+- name: SSSD running
+  ansible.builtin.systemd_service:
+    name: sssd
+    enabled: true
+    state: started
+
+- name: Is home-directory creation on first login enabled?
+  ansible.builtin.command: grep -q pam_mkhomedir /etc/pam.d/common-session
+  register: mkhomedir
+  changed_when: false
+  failed_when: false
+  check_mode: false   # read-only probe
+
+- name: Create home directories on first login
+  ansible.builtin.command: pam-auth-update --enable mkhomedir
+  when: mkhomedir.rc != 0
+
+- name: sudo for workstation admins
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/ad-admins
+    content: |
+      # Managed by Ansible (ad_join role)
+      {% for g in ad_admin_groups %}
+      %{{ g }} ALL=(ALL:ALL) ALL
+      {% endfor %}
+    mode: "0440"
+    validate: visudo -cf %s

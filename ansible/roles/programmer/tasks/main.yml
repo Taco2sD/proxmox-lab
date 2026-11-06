@@ -1,0 +1,11 @@
+# Applied when this computer is in the AD group "role-programmer".
+- name: Build toolchain
+  ansible.builtin.apt:
+    name: [build-essential, cmake, ninja-build, gdb, python3-venv]
+    state: present
+
+- name: Say what this machine is at login
+  ansible.builtin.copy:
+    dest: /etc/motd
+    content: "Programmer workstation - managed by Ansible (role-programmer)\n"
+    mode: "0644"

@@ -1,0 +1,13 @@
+# Applied when this computer is in the AD group "role-artist".
+# Lightweight stand-ins for a real artist toolset (Maya/Houdini/Substance would be
+# internal packages from the studio's own repo).
+- name: Image and video tools
+  ansible.builtin.apt:
+    name: [imagemagick, ffmpeg]
+    state: present
+
+- name: Say what this machine is at login
+  ansible.builtin.copy:
+    dest: /etc/motd
+    content: "Artist workstation - managed by Ansible (role-artist)\n"
+    mode: "0644"

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Ansible local fact (managed by Ansible, ad_join role).
+# Prints JSON: which AD groups is THIS computer account a member of?
+# It authenticates as the machine itself, using the keytab written by the join,
+# so no admin credentials are involved.
+me="$(hostname -s | tr '[:lower:]' '[:upper:]')\$"
+cc="$(mktemp)"
+trap 'rm -f "$cc"' EXIT
+
+if ! kinit -k -c "FILE:$cc" "$me" >/dev/null 2>&1; then
+  echo '{"joined": false, "groups": []}'
+  exit 0
+fi
+
+# -N: don't use reverse DNS to work out the server's Kerberos name (no PTR records here)
+groups="$(KRB5CCNAME="FILE:$cc" ldapsearch -N -Q -LLL -o ldif-wrap=no -Y GSSAPI \
+            -H "ldap://{{ ad_dc }}" -b "{{ ad_base_dn }}" "(sAMAccountName=$me)" memberOf 2>/dev/null \
+          | sed -n 's/^memberOf: CN=\([^,]*\),.*/\1/p')"
+
+printf '{"joined": true, "groups": ['
+sep=""
+for g in $groups; do printf '%s"%s"' "$sep" "$g"; sep=","; done
+printf ']}\n'

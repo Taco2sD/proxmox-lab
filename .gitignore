@@ -1,0 +1,5 @@
+# Personal / not part of the lab
+linux-refresh.html
+*.rdp
+# Old standalone copy of the Ansible repo (superseded by ansible/)
+ansible-workstations/

@@ -1,0 +1,50 @@
+#!/bin/sh
+# /usr/local/sbin/dhcp-dns-update on dc01
+# dnsmasq dhcp-script: the DHCP server registers its clients in AD DNS (A + PTR).
+# Clients never write DNS themselves. Updates are signed with Kerberos (GSS-TSIG)
+# as svc-dhcp-dns, which owns the records it creates and can later change them.
+#
+# dnsmasq calls it as root:  <add|old|del> <mac> <ip> [hostname]
+#   add = new lease, old = renewal or replay at startup, del = lease expired/released
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+action=$1 mac=$2 ip=$3 host=${4:-}
+zone=ad.lab.internal
+server=dc01.ad.lab.internal
+keytab=/etc/dhcp-dns.keytab
+principal=svc-dhcp-dns
+tag=dhcp-dns
+log() { logger -t "$tag" "$*"; }
+
+case $action in add|old|del) ;; *) exit 0 ;; esac
+[ -n "$host" ] || { log "$action $ip ($mac): no hostname, not registering"; exit 0; }
+
+# Reserved hosts keep their records even when the lease lapses, like Infoblox
+# Host records: the reservation, not the lease, defines them.
+if [ "$action" = del ] && grep -qis "^dhcp-host=$mac," /etc/dnsmasq.d/*.conf; then
+  log "del $host $ip: reserved address, keeping its records"
+  exit 0
+fi
+
+fqdn="$host.$zone."
+ptr="$(echo "$ip" | awk -F. '{print $4"."$3"."$2"."$1}').in-addr.arpa."
+rzone="$(echo "$ip" | awk -F. '{print $3"."$2"."$1}').in-addr.arpa"
+
+cc="$(mktemp)"; export KRB5CCNAME="FILE:$cc"
+trap 'rm -f "$cc"' EXIT
+kinit -k -t "$keytab" "$principal" 2>/dev/null || { log "$action $host: kinit as $principal failed"; exit 1; }
+
+if [ "$action" = del ]; then
+  fwd="update delete $fqdn A"
+  rev="update delete $ptr PTR"
+else
+  fwd="update delete $fqdn A
+update add $fqdn 3600 A $ip"
+  rev="update delete $ptr PTR
+update add $ptr 3600 PTR $fqdn"
+fi
+
+a=FAILED; p=FAILED
+printf 'server %s\nzone %s\n%s\nsend\n' "$server" "$zone"  "$fwd" | nsupdate -g 2>/dev/null && a=ok
+printf 'server %s\nzone %s\n%s\nsend\n' "$server" "$rzone" "$rev" | nsupdate -g 2>/dev/null && p=ok
+log "$action $host $ip: A=$a PTR=$p"

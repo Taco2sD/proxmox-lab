@@ -1,0 +1,13 @@
+# Handlers run only when a task reports "changed", and only once at the end of the play.
+- name: Reload chrony sources
+  ansible.builtin.command: chronyc reload sources
+  changed_when: true
+
+- name: Restart chrony
+  ansible.builtin.systemd_service:
+    name: chrony
+    state: restarted
+
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true

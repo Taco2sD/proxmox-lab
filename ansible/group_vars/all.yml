@@ -1,0 +1,15 @@
+# Settings shared by every role. No secrets here: this repo is public on GitHub.
+ad_domain: ad.lab.internal
+ad_realm: AD.LAB.INTERNAL
+ad_dc: dc01.ad.lab.internal
+ad_base_dn: DC=ad,DC=lab,DC=internal
+repo_url: https://github.com/Taco2sD/proxmox-lab.git
+playbook: ansible/local.yml
+pull_interval: 30min
+
+# Access control. Machine role (AD computer group) -> AD user groups allowed to log in.
+role_login_groups:
+  role-artist: [artists]
+  role-programmer: [programmers]
+# Allowed to log in on every workstation, and get sudo.
+ad_admin_groups: [ws-admins]

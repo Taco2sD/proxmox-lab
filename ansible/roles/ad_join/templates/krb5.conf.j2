@@ -1,0 +1,8 @@
+# Managed by Ansible (ad_join role)
+[libdefaults]
+    default_realm = {{ ad_realm }}
+    # Find KDCs through DNS SRV records (_kerberos._udp.{{ ad_domain }}), not a hard-coded list
+    dns_lookup_kdc = true
+    dns_lookup_realm = false
+    # No reverse DNS zone in the lab; don't let PTR lookups rename servers
+    rdns = false

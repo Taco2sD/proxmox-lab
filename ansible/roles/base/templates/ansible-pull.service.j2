@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply workstation configuration from git (ansible-pull)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# flock: never two runs at once (first-boot cloud-init run vs. the timer).
+# -n -E 0: if another run holds the lock, skip quietly and report success.
+ExecStart=/usr/bin/flock -n -E 0 /run/ansible-pull.lock /usr/bin/ansible-pull --url {{ repo_url }} --checkout main --directory /var/lib/ansible-pull {{ playbook }}

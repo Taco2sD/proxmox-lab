@@ -1,0 +1,14 @@
+# ansible-pull runs local.yml by default. Each workstation applies this to itself.
+- name: Configure this workstation
+  hosts: localhost
+  connection: local
+  roles:
+    - base
+    - ad_join
+  tasks:
+    # The ad_join role sets ad_groups: the AD groups this computer account belongs to.
+    # Every "role-<name>" group maps to roles/<name>.
+    - name: Apply the roles AD assigns to this computer
+      ansible.builtin.include_role:
+        name: "{{ item | regex_replace('^role-', '') }}"
+      loop: "{{ ad_groups | default([]) | select('match', '^role-') | list }}"

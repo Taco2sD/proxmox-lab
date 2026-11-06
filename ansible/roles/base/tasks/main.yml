@@ -1,0 +1,43 @@
+- name: Common tools (ansible-core + git keep this machine self-managing)
+  ansible.builtin.apt:
+    name: [vim, htop, curl, git, ansible-core]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Take time from the domain controller (Kerberos tolerates 5 min skew)
+  ansible.builtin.copy:
+    dest: /etc/chrony/sources.d/ad.sources
+    content: "server {{ ad_dc }} iburst prefer\n"
+    mode: "0644"
+  notify: Reload chrony sources
+
+- name: VMs can be frozen with their host; let chrony step big errors any time
+  ansible.builtin.copy:
+    dest: /etc/chrony/conf.d/vm-makestep.conf
+    content: "makestep 1 -1\n"
+    mode: "0644"
+  notify: Restart chrony
+
+- name: Stop using Ubuntu's public NTP pools
+  ansible.builtin.file:
+    path: /etc/chrony/sources.d/ubuntu-ntp-pools.sources
+    state: absent
+  notify: Reload chrony sources
+
+- name: Install the ansible-pull service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [ansible-pull.service, ansible-pull.timer]
+  notify: Reload systemd
+
+- name: Make systemd see new units before enabling them
+  ansible.builtin.meta: flush_handlers
+
+- name: Run ansible-pull on a schedule
+  ansible.builtin.systemd_service:
+    name: ansible-pull.timer
+    enabled: true
+    state: started
