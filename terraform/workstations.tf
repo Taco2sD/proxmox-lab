@@ -68,7 +68,11 @@ resource "proxmox_virtual_environment_vm" "workstation" {
   # install the disk wins. Network first would reinstall on every boot.
   boot_order = ["scsi0", "net0"]
 
+  # The provider waits for the guest agent to report IP addresses on create and
+  # refresh (default 15 minutes). A VM that is still installing has no agent yet,
+  # which held the state lock through a whole reimage. Running VMs answer in seconds.
   agent {
     enabled = true
+    timeout = "30s"
   }
 }
