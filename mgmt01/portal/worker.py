@@ -164,6 +164,7 @@ def batch(reqs):
     git("fetch", "-q", "origin")
     git("reset", "-q", "--hard", "origin/main")   # the runner's checkout never carries local edits
     creates, removes, used = [], [], taken_slots()
+    deleted_by = {}
 
     for _, req in reqs:
         user = req["user"]
@@ -191,8 +192,12 @@ def batch(reqs):
             creates.append(user)
         elif req["action"] == "delete":
             m = load(user)
-            if not m or m.get("token_sha256") != req["token_sha256"]:
+            # The owner proves it with their token; a lab admin (checked against AD's
+            # ws-admins by the web side) may delete any guest machine, in any state.
+            admin = req.get("admin")
+            if not m or (not admin and m.get("token_sha256") != req.get("token_sha256")):
                 continue
+            deleted_by[user] = f"admin {admin}" if admin else "owner"
             if never_built(m):                              # rejected: nothing in git or AD
                 (MACHINES / f"{user}.json").unlink(missing_ok=True)
                 (PASSWORDS / user).unlink(missing_ok=True)
@@ -205,15 +210,21 @@ def batch(reqs):
         path.unlink(missing_ok=True)
     if not creates and not removes:
         return
-    parts = [f"add ws-{u} ({load(u)['role']}, owner {u})" for u in creates] + [f"remove ws-{u}" for u in removes]
+    parts = [f"add ws-{u} ({load(u)['role']}, owner {u})" for u in creates] + \
+            [f"remove ws-{u} (by {deleted_by[u]})" for u in removes]
     git("add", "-A", "inventory/guests")
-    result = git("commit", "-q", "-m", "Portal: " + "; ".join(parts))
-    if result.returncode == 0:
-        result = git("push", "-q", "origin", "HEAD:main")
+    # Nothing to commit happens when retrying a removal whose file is already gone
+    # from git; the clean-up below still runs.
+    if git("diff", "--cached", "--quiet").returncode == 0:
+        result = subprocess.CompletedProcess([], 0, "", "")
+    else:
+        result = git("commit", "-q", "-m", "Portal: " + "; ".join(parts))
+        if result.returncode == 0:
+            result = git("push", "-q", "origin", "HEAD:main")
     if result.returncode != 0:
         why = "could not commit the request to git"
         log(f"{why}: {result.stdout}{result.stderr}")
-        for u in creates:
+        for u in creates + removes:
             mark(u, state="failed", error=why)
         return
     for u in creates:
@@ -239,7 +250,14 @@ def batch(reqs):
                 mark(u, state="failed", error=f"lab apply failed (log {stamp}-apply.log)")
         log(f"lab apply failed:\n{tail}")
 
-    if removes:
+    if removes and rc != 0:
+        # The VM may still exist: don't delete its accounts and records under it.
+        # The machine stays listed as failed, so an admin can retry the delete.
+        for u in removes:
+            mark(u, state="failed", error=f"removing the VM failed (log {stamp}-apply.log)")
+    elif removes:
+        # AD user + computer account, autoinstall record, DHCP lease and with it the
+        # A/PTR records (dhcp_server role), then the portal's own files
         with open(LOGS / f"{stamp}-prune.log", "w") as f:
             rc, tail = run(["lab", "prune"], f, env=env)
         for u in removes:

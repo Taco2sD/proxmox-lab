@@ -23,3 +23,33 @@
     mode: "0644"
     validate: dnsmasq --test --conf-file=%s
   notify: Restart dnsmasq
+
+- name: dhcp_release (dnsmasq-utils), used by lab prune
+  ansible.builtin.apt:
+    name: dnsmasq-utils
+    state: present
+
+# ---- lab prune only ----------------------------------------------------------
+# A removed workstation's DHCP lease would otherwise live on for up to 12 hours, and
+# with it its A and PTR records (the hook keeps records while a lease exists).
+# Releasing the lease makes dnsmasq fire its normal "del" event right away; with the
+# reservation already gone, the hook deletes the records itself, as svc-dhcp-dns,
+# the account that owns them in AD DNS.
+- name: Current leases (lab prune)
+  ansible.builtin.slurp:
+    src: /var/lib/misc/dnsmasq.leases
+  register: leases
+  when: prune | default(false) | bool
+
+- name: Release leases of workstations that left the inventory (lab prune)
+  ansible.builtin.command:
+    argv: [dhcp_release, ens18, "{{ item.split()[2] }}", "{{ item.split()[1] }}", "{{ item.split()[4] }}"]
+  # (the loop is expanded before `when` is checked, hence the empty list off-prune)
+  loop: >-
+    {{ [] if not (prune | default(false) | bool) else
+       (leases.content | b64decode).splitlines()
+       | select('match', '^\S+ bc:24:11:00:00:')
+       | reject('search', ' (' ~ (workstations.values() | map(attribute='mac') | map('lower') | join('|')) ~ ') ')
+       | list }}
+  loop_control:
+    label: "{{ item.split()[3] }} {{ item.split()[2] }}"

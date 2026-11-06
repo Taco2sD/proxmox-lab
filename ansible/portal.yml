@@ -4,11 +4,47 @@
 # infra.yml, and a deployment restarts the worker. Deploying from inside a run would
 # kill the run that does the deploying.
 
+# The admin page checks passwords against dc01 over LDAPS; dc01's certificate comes from
+# Samba's own CA, so the portal trusts exactly that CA (not the whole system store).
+- name: dc01 - Samba's CA for the portal
+  hosts: dc01
+  tasks:
+    - name: Read Samba's CA certificate
+      ansible.builtin.slurp:
+        src: /var/lib/samba/private/tls/ca.pem
+      register: samba_ca
+
 - name: mgmt01 - self-service portal
   hosts: mgmt01
   vars:
     src: "{{ playbook_dir }}/../mgmt01/portal"
   tasks:
+    - name: Portal config directory
+      ansible.builtin.file:
+        path: /etc/lab-portal
+        state: directory
+        mode: "0755"
+
+    - name: Samba's CA, for LDAPS to dc01
+      ansible.builtin.copy:
+        content: "{{ hostvars['dc01'].samba_ca.content | b64decode }}"
+        dest: /etc/lab-portal/samba-ca.pem
+        mode: "0644"
+
+    - name: LDAP client for the admin sign-in
+      ansible.builtin.apt:
+        name: python3-ldap3
+        state: present
+
+    # Signs the admin session cookie. Created once; rotating it signs everyone out.
+    - name: Session key (created once)
+      ansible.builtin.shell: |
+        umask 027
+        openssl rand -hex 32 > /etc/lab-portal/session-key
+        chgrp labportal /etc/lab-portal/session-key
+      args:
+        creates: /etc/lab-portal/session-key
+
     - name: Unprivileged user for the web side
       ansible.builtin.user:
         name: labportal
@@ -43,7 +79,7 @@
         src: "{{ src }}/{{ item }}"
         dest: /usr/local/lib/lab-portal/
         mode: "0755"
-      loop: [portal.py, portal.html, worker.py]
+      loop: [portal.py, portal.html, admin.html, worker.py]
       notify: Restart portal
 
     - name: systemd units
@@ -101,6 +137,7 @@
         mode: "0644"
       loop:
         - { src: nginx-lab-tls.conf, dest: /etc/nginx/snippets/lab-tls.conf }
+        - { src: nginx-lab-limits.conf, dest: /etc/nginx/conf.d/lab-limits.conf }
         - { src: nginx-lab-portal-locations.conf, dest: /etc/nginx/snippets/lab-portal-locations.conf }
         - { src: nginx-lab-events.conf, dest: /etc/nginx/snippets/lab-events.conf }
         - { src: nginx-lab-portal.conf, dest: /etc/nginx/sites-available/lab-portal }

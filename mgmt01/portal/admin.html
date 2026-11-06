@@ -1,0 +1,171 @@
+<!doctype html>
+<!-- Lab admin page, served by portal.py at /admin. Sign in with an AD account in
+     ws-admins; every guest workstation is listed whatever its state, and Delete runs
+     the same full clean-up as an owner's delete (VM, AD accounts, DHCP + DNS, git). -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab admin</title>
+<style>
+:root { --bg:#f5f6f8; --card:#fff; --text:#1b2130; --muted:#5f6878; --line:#dfe3ea; --soft:#eef1f6;
+        --accent:#2f5bea; --accent-text:#fff; --ok:#18804a; --bad:#c03636; --warn:#a86a00;
+        --shadow:0 1px 2px rgba(20,30,50,.06), 0 8px 24px rgba(20,30,50,.06); }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#12151b; --card:#1b1f27; --text:#e7eaf0; --muted:#9aa3b3; --line:#2c323d; --soft:#232833;
+          --accent:#7d9cff; --accent-text:#0d1220; --ok:#4cc38a; --bad:#ff7b7b; --warn:#e3b341;
+          --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25); } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width:1100px; margin:0 auto; padding:40px 16px 64px; }
+header { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:24px; }
+h1 { font-size:1.5rem; margin:0; }
+.muted { color:var(--muted); } .small { font-size:.85rem; }
+button { font:inherit; font-weight:600; border-radius:8px; padding:8px 14px; cursor:pointer; border:1px solid transparent; }
+button.primary { background:var(--accent); color:var(--accent-text); }
+button.ghost { background:transparent; color:var(--text); border-color:var(--line); }
+button.danger { background:var(--bad); color:#fff; }
+button.danger-ghost { background:transparent; color:var(--bad); border-color:var(--line); padding:5px 12px; font-size:.85rem; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); }
+.login { max-width:380px; margin:10vh auto 0; padding:26px; }
+.login h1 { margin-bottom:6px; }
+label { display:block; font-weight:600; margin:14px 0 6px; }
+input { width:100%; padding:10px 12px; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+.error { color:var(--bad); min-height:1.4em; font-size:.9rem; margin:12px 0 0; }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; }
+th, td { text-align:left; padding:12px 14px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
+th { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600; }
+tr:last-child td { border-bottom:0; }
+td.mono { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:.9rem; }
+.status { display:inline-flex; align-items:center; gap:6px; font-weight:600; font-size:.9rem; }
+.status::before { content:""; width:8px; height:8px; border-radius:50%; background:currentColor; }
+.status.building { color:var(--accent); } .status.ready { color:var(--ok); }
+.status.failed { color:var(--bad); } .status.removing { color:var(--warn); }
+.detail { font-size:.8rem; color:var(--muted); white-space:normal; max-width:280px; }
+.detail.err { color:var(--bad); }
+.empty { padding:40px; text-align:center; color:var(--muted); }
+dialog { border:0; border-radius:14px; padding:22px; width:min(460px, calc(100vw - 32px)); background:var(--card); color:var(--text); box-shadow:0 24px 64px rgba(0,0,0,.35); }
+dialog::backdrop { background:rgba(10,14,22,.55); }
+dialog h2 { margin:0 0 10px; font-size:1.15rem; }
+dialog ul { margin:8px 0 16px; padding-left:20px; color:var(--muted); font-size:.9rem; }
+.buttons { display:flex; justify-content:flex-end; gap:8px; }
+</style></head>
+<body>
+<main id="app"></main>
+
+<dialog id="del" aria-labelledby="del-title">
+  <h2 id="del-title"></h2>
+  <p>This removes everything the lab created for it:</p>
+  <ul>
+    <li>the VM and its disk (OpenTofu)</li>
+    <li>the owner's AD account and the computer account</li>
+    <li>its DHCP reservation and lease, and its DNS A and PTR records</li>
+    <li>its install record, and its file in the inventory (committed to git)</li>
+  </ul>
+  <p class="muted small">It can't be undone. The owner's page will show the machine as deleted.</p>
+  <div class="buttons"><button class="ghost" id="del-cancel">Cancel</button><button class="danger" id="del-confirm">Delete</button></div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null) n.append(kid);
+  return n;
+};
+async function api(path, body) {
+  const opts = { cache: "no-store", headers: {} };
+  if (body !== undefined) {
+    opts.method = "POST"; opts.body = JSON.stringify(body);
+    opts.headers = { "Content-Type": "application/json", "X-Requested-With": "lab-portal" };
+  }
+  try { const r = await fetch(path, opts); return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) }; }
+  catch { return { ok: false, status: 0, data: {} }; }
+}
+
+const STATUS = { building: "Creating", ready: "Ready", failed: "Failed", removing: "Deleting" };
+const ago = ts => { const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
+  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m ago`; };
+
+// ---------------------------------------------------------------- sign in
+function showLogin(message = "") {
+  clearTimeout(timer);
+  const err = el("p", { class: "error", role: "alert" }, message);
+  const user = el("input", { id: "u", autocomplete: "username", autocapitalize: "none", spellcheck: "false", required: true });
+  const pass = el("input", { id: "p", type: "password", autocomplete: "current-password", required: true });
+  const go = el("button", { class: "primary", type: "submit", style: "width:100%;margin-top:18px" }, "Sign in");
+  const form = el("form", { class: "card login", onsubmit: async e => {
+      e.preventDefault(); go.disabled = true; go.textContent = "Signing in…"; err.textContent = "";
+      const r = await api("/api/admin/login", { username: user.value.trim(), password: pass.value });
+      pass.value = "";
+      if (r.ok) return showMachines(r.data.user);
+      go.disabled = false; go.textContent = "Sign in";
+      err.textContent = r.status === 429 ? "Too many attempts. Wait a minute." : (r.data.error || "Sign-in failed.");
+    } },
+    el("h1", {}, "Lab admin"), el("p", { class: "muted small", style: "margin:0" }, "Sign in with your lab AD account (ws-admins)."),
+    el("label", { for: "u" }, "Username"), user, el("label", { for: "p" }, "Password"), pass, go, err);
+  $("#app").replaceChildren(form); user.focus();
+}
+
+// ---------------------------------------------------------------- machines
+let timer = null, me = null, phaseNames = {};
+async function showMachines(user) {
+  me = user || me;
+  clearTimeout(timer);
+  const r = await api("/api/admin/machines");
+  if (r.status === 401) return showLogin("Your session ended. Sign in again.");
+  if (r.ok) phaseNames = Object.fromEntries(r.data.phases);
+  const rows = (r.data.machines || []).map(m => {
+    const ph = m.phases || {};
+    const last = Object.entries(ph).sort((a, b) => b[1] - a[1])[0] || ["queued", Date.now() / 1000];
+    const next = r.data.phases.map(p => p[0]).find(k => !(k in ph));
+    const detail = m.state === "failed" ? el("div", { class: "detail err" }, m.error || "")
+      : m.state === "building" ? el("div", { class: "detail" }, `Now: ${phaseNames[next] || ""}`) : null;
+    return el("tr", {},
+      el("td", { class: "mono" }, m.host, m.vmid ? el("div", { class: "detail" }, `VM ${m.vmid}`) : null),
+      el("td", {}, m.user), el("td", {}, m.role === "artist" ? "Artist" : m.role === "programmer" ? "Programmer" : m.role),
+      el("td", { class: "mono" }, m.ip || "–"),
+      el("td", {}, el("span", { class: "status " + m.state }, STATUS[m.state] || m.state), detail),
+      el("td", { class: "muted small" }, `${phaseNames[last[0]] || last[0]}`, el("div", { class: "detail" }, ago(last[1]))),
+      el("td", {}, el("button", { class: "danger-ghost", onclick: () => confirmDelete(m) }, "Delete")));
+  });
+  const busy = (r.data.machines || []).some(m => m.state === "building" || m.state === "removing");
+  $("#app").replaceChildren(
+    el("header", {},
+      el("div", {}, el("h1", {}, "Guest workstations"),
+        el("div", { class: "muted small" }, `${rows.length} machine${rows.length === 1 ? "" : "s"} · signed in as ${me}`)),
+      el("div", { style: "display:flex;gap:8px" },
+        el("a", { href: "/", class: "muted small", style: "align-self:center;margin-right:8px" }, "Portal"),
+        el("button", { class: "ghost", onclick: async () => { await api("/api/admin/logout", {}); showLogin(); } }, "Sign out"))),
+    el("div", { class: "card table-wrap" }, rows.length
+      ? el("table", {}, el("thead", {}, el("tr", {}, ["Machine", "Owner", "Role", "Address", "Status", "Last step", ""].map(h => el("th", {}, h)))),
+          el("tbody", {}, rows))
+      : el("div", { class: "empty" }, "No guest workstations.")));
+  timer = setTimeout(showMachines, busy ? 3000 : 10000);
+}
+
+// ---------------------------------------------------------------- delete
+let target = null;
+function confirmDelete(m) {
+  target = m;
+  $("#del-title").textContent = `Delete ${m.host}?`;
+  $("#del").showModal();
+}
+$("#del-cancel").addEventListener("click", () => $("#del").close());
+$("#del-confirm").addEventListener("click", async () => {
+  $("#del-confirm").disabled = true;
+  const r = await api("/api/admin/delete", { user: target.user });
+  $("#del-confirm").disabled = false;
+  $("#del").close();
+  if (r.status === 401) return showLogin("Your session ended. Sign in again.");
+  showMachines();
+});
+
+(async () => { const r = await api("/api/admin/me"); r.ok ? showMachines(r.data.user) : showLogin(); })();
+</script>
+</body></html>
