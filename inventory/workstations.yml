@@ -1,0 +1,12 @@
+# The lab's workstations: the single source of truth for what exists.
+#
+# Read by both tools (see docs/boundaries.md):
+#   terraform/   creates, replaces and destroys the VMs
+#   ansible/     AD computer account + role, DHCP reservation, autoinstall host record
+#
+# To add a machine: add a line, `tofu apply`, run the infra playbook. It installs,
+# joins AD and configures itself. To retire one: delete its line and do the same.
+workstations:
+  ws01: { vmid: 121, mac: "BC:24:11:00:00:21", ip: 10.10.10.21, role: artist }
+  ws02: { vmid: 122, mac: "BC:24:11:00:00:22", ip: 10.10.10.22, role: programmer }
+  ws03: { vmid: 123, mac: "BC:24:11:00:00:23", ip: 10.10.10.23, role: programmer }

@@ -3,3 +3,10 @@ linux-refresh.html
 *.rdp
 # Old standalone copy of the Ansible repo (superseded by ansible/)
 ansible-workstations/
+# OpenTofu/Terraform: state can contain secrets and IDs; never commit it.
+# (.terraform.lock.hcl IS committed: it pins provider versions.)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
