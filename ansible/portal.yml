@@ -43,7 +43,7 @@
         src: "{{ src }}/{{ item }}"
         dest: /usr/local/lib/lab-portal/
         mode: "0755"
-      loop: [portal.py, worker.py]
+      loop: [portal.py, portal.html, worker.py]
       notify: Restart portal
 
     - name: systemd units

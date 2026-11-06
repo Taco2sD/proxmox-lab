@@ -137,13 +137,15 @@ def taken_slots():
 # ---------------------------------------------------------------- one batch
 
 def take_requests():
+    """Waiting requests and their files. The files are deleted only once each request
+    has a machine file (see batch): the web side finds a request in one or the other,
+    and a visitor's page never lands in the gap between them ("Not found")."""
     reqs = []
     for path in sorted(REQUESTS.glob("*.json")):
         try:
-            reqs.append(json.loads(path.read_text()))
+            reqs.append((path, json.loads(path.read_text())))
         except (OSError, ValueError):
-            pass
-        path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
     return reqs
 
 
@@ -163,7 +165,7 @@ def batch(reqs):
     git("reset", "-q", "--hard", "origin/main")   # the runner's checkout never carries local edits
     creates, removes, used = [], [], taken_slots()
 
-    for req in reqs:
+    for _, req in reqs:
         user = req["user"]
         if req["action"] == "create":
             old = load(user)
@@ -199,6 +201,8 @@ def batch(reqs):
             mark(user, state="removing")
             removes.append(user)
 
+    for path, _ in reqs:          # every request now has a machine file (or was dropped)
+        path.unlink(missing_ok=True)
     if not creates and not removes:
         return
     parts = [f"add ws-{u} ({load(u)['role']}, owner {u})" for u in creates] + [f"remove ws-{u}" for u in removes]
@@ -252,8 +256,25 @@ def batch(reqs):
 LINE = re.compile(r'^(\S+) \S+ \S+ \[[^\]]+\] "GET (\S+) [^"]*" (\d{3})')
 
 
+POSITION = STATE / "access-log.position"
+
+
+def read_position():
+    try:
+        inode, pos = POSITION.read_text().split()
+        return int(inode), int(pos)
+    except (OSError, ValueError):
+        return None
+
+
+def save_position(inode, pos):
+    if read_position() != (inode, pos):
+        POSITION.write_text(f"{inode} {pos}\n")
+
+
 def follow_access_log():
-    """tail -F: keep reading new lines, reopen when logrotate replaces the file."""
+    """tail -F that survives restarts: the position read so far is saved in POSITION,
+    so a worker restart (a deployment, say) doesn't miss a guest's progress."""
     f, inode, first = None, None, True
     while True:
         try:
@@ -262,11 +283,17 @@ def follow_access_log():
                 if f:
                     f.close()
                 f, inode = open(ACCESS_LOG), st.st_ino
-                if first:                    # at startup, skip history; after a rotation, read all
-                    f.seek(0, os.SEEK_END)
+                if first:
                     first = False
+                    saved = read_position()
+                    if saved and saved[0] == inode and saved[1] <= st.st_size:
+                        f.seek(saved[1])         # same file as before the restart: continue
+                    elif not saved:
+                        f.seek(0, os.SEEK_END)   # very first start: history isn't ours
+                    # otherwise logrotate replaced the file meanwhile: read it all
             line = f.readline()
             if not line:
+                save_position(inode, f.tell())
                 time.sleep(1)
                 continue
             m = LINE.match(line)
@@ -320,7 +347,7 @@ def main():
                 batch(reqs)
             except Exception as e:
                 log(f"batch failed: {e!r}")
-                for r in reqs:
+                for _, r in reqs:
                     if (m := load(r["user"])) and m["state"] == "building" and "created" not in m["phases"]:
                         mark(r["user"], state="failed", error="internal error in the portal worker")
         fail_stalled()
