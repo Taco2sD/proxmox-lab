@@ -16,6 +16,10 @@ resource "proxmox_virtual_environment_vm" "workstation" {
 
   on_boot = true # come back by themselves when pve01 restarts
 
+  # Workstations are disposable: on destroy (reimage), power off immediately instead
+  # of waiting for a clean shutdown a crashed or installing VM will never complete.
+  stop_on_destroy = true
+
   machine = "q35"
   bios    = "ovmf"
 
