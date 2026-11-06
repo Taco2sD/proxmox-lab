@@ -5,6 +5,7 @@
 #   lab apply           make the lab match inventory/workstations.yml
 #   lab reimage <host>  rebuild one workstation from scratch (keeps its AD account and role)
 #   lab prune           delete AD accounts and host records of workstations removed from the inventory
+#   lab portal          install or update the self-service portal (ansible/portal.yml)
 #
 # Always works from the latest commit on GitHub. Set LAB_YES=1 to skip confirmations.
 set -euo pipefail
@@ -76,8 +77,12 @@ case "${1:-}" in
     ap ansible/infra.yml -e prune=true
     ;;
 
+  portal)
+    ap ansible/portal.yml                               # (re)install the self-service portal
+    ;;
+
   *)
-    sed -n '4,9p' "$0"
+    sed -n '4,10p' "$0"
     exit 1
     ;;
 esac

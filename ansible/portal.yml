@@ -1,0 +1,98 @@
+# Installs the self-service portal on mgmt01 (docs/self-service.md): `lab portal`.
+#
+# Separate from infra.yml on purpose: the portal's worker runs `lab apply`, which runs
+# infra.yml, and a deployment restarts the worker. Deploying from inside a run would
+# kill the run that does the deploying.
+
+- name: mgmt01 - self-service portal
+  hosts: mgmt01
+  vars:
+    src: "{{ playbook_dir }}/../mgmt01/portal"
+  tasks:
+    - name: Unprivileged user for the web side
+      ansible.builtin.user:
+        name: labportal
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+
+    # requests/  web writes, worker reads and deletes
+    # passwords/ web creates (O_EXCL reservation), worker and Ansible read
+    # machines/  worker writes, web reads (setgid: files inherit group labportal)
+    - name: State directories
+      ansible.builtin.file:
+        path: "/var/lib/lab-portal/{{ item.name }}"
+        state: directory
+        owner: root
+        group: labportal
+        mode: "{{ item.mode }}"
+      loop:
+        - { name: "", mode: "0750" }
+        - { name: requests, mode: "0770" }
+        - { name: passwords, mode: "0770" }
+        - { name: machines, mode: "2750" }
+
+    - name: Log directory
+      ansible.builtin.file:
+        path: /var/log/lab-portal
+        state: directory
+        mode: "0750"
+
+    - name: Program files
+      ansible.builtin.copy:
+        src: "{{ src }}/{{ item }}"
+        dest: /usr/local/lib/lab-portal/
+        mode: "0755"
+      loop: [portal.py, worker.py]
+      notify: Restart portal
+
+    - name: systemd units
+      ansible.builtin.copy:
+        src: "{{ src }}/{{ item }}"
+        dest: /etc/systemd/system/
+        mode: "0644"
+      loop: [lab-portal.service, lab-portal-worker.service]
+      notify: Restart portal
+
+    - name: nginx site (port 8080) and the /lab-events/ snippet
+      ansible.builtin.copy:
+        src: "{{ src }}/{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "0644"
+      loop:
+        - { src: nginx-lab-portal.conf, dest: /etc/nginx/sites-available/lab-portal }
+        - { src: nginx-lab-events.conf, dest: /etc/nginx/snippets/lab-events.conf }
+      notify: Reload nginx
+
+    - name: Enable the site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/lab-portal
+        dest: /etc/nginx/sites-enabled/lab-portal
+        state: link
+      notify: Reload nginx
+
+    - name: Include the snippet in the default server
+      ansible.builtin.lineinfile:
+        path: /etc/nginx/sites-available/default
+        line: "\tinclude snippets/lab-events.conf;"
+        insertafter: "include snippets/autoinstall-otp.conf;"
+      notify: Reload nginx
+
+    - name: Start both services at boot
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      loop: [lab-portal, lab-portal-worker]
+
+  handlers:
+    - name: Restart portal
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: restarted
+        daemon_reload: true
+      loop: [lab-portal, lab-portal-worker]
+
+    - name: Reload nginx
+      ansible.builtin.shell: nginx -t && systemctl reload nginx

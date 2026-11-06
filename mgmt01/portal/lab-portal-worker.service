@@ -1,0 +1,15 @@
+# Self-service portal, worker side (mgmt01/portal/worker.py): commits requests to git
+# and runs `lab apply`. Root, like `lab` itself (OpenTofu token, runner SSH key).
+[Unit]
+Description=Lab self-service portal (worker)
+After=network-online.target nginx.service
+
+[Service]
+Environment=LAB_PORTAL_MAX_GUESTS=4
+Environment=HOME=/root
+ExecStart=/usr/bin/python3 /usr/local/lib/lab-portal/worker.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

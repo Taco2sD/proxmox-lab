@@ -12,3 +12,13 @@
       ansible.builtin.include_role:
         name: "{{ item | regex_replace('^role-', '') }}"
       loop: "{{ ad_groups | default([]) | select('match', '^role-') | list }}"
+
+  post_tasks:
+    # Only reached when the whole run succeeded. The self-service portal on mgmt01
+    # reads this request from its nginx log to know a guest machine is ready.
+    - name: Tell mgmt01 this configuration run finished
+      ansible.builtin.uri:
+        url: http://10.10.10.6/lab-events/configured
+        status_code: [204, 404]   # 404 until the portal is installed
+      changed_when: false
+      failed_when: false
