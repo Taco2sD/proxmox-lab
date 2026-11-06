@@ -25,6 +25,18 @@
     state: absent
   notify: Reload chrony sources
 
+# systemd's profile script prints OSC 3008 "context" escape codes around every prompt.
+# Terminals that don't know them show them as text: Guacamole's browser terminal
+# fills up with "start=...;machineid=...;user=..." on every Enter. dpkg-divert moves
+# the file aside in a way package upgrades respect, so it stays off.
+- name: Turn off systemd's OSC 3008 prompt codes (garble the browser terminal)
+  ansible.builtin.command: >-
+    dpkg-divert --local --rename
+    --divert /etc/profile.d/80-systemd-osc-context.sh.disabled
+    --add /etc/profile.d/80-systemd-osc-context.sh
+  register: osc_divert
+  changed_when: "'Adding' in osc_divert.stdout"
+
 - name: Install the ansible-pull service and timer
   ansible.builtin.template:
     src: "{{ item }}.j2"
