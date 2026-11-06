@@ -11,10 +11,12 @@ server {
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
     add_header Strict-Transport-Security "max-age=31536000" always;
 
-    auth_basic "Lab";
-    auth_basic_user_file /etc/nginx/lab.htpasswd;
+    # Sign-in gate: oauth2-proxy (vps/oauth2-proxy/), one session for lab. and pve.
+    include snippets/lab-gate.conf;
 
     location / {
+        auth_request /oauth2/auth;
+        error_page 401 = @lab_sign_in;
         proxy_pass https://10.99.0.2:8006;
         proxy_ssl_verify on;
         proxy_ssl_verify_depth 2;                        # site -> LE intermediate -> root (nginx default: 1)

@@ -1,7 +1,7 @@
 # /etc/nginx/sites-available/lab.radicallydecent.com on the VPS: the self-service portal
 # and its browser terminal. HTTPS only (no port-80 server).
 #
-#   browser --TLS--> VPS (password prompt) --TLS, verified--> pve01 relay (TCP only,
+#   browser --TLS--> VPS (sign-in gate) --TLS, verified--> pve01 relay (TCP only,
 #   10.99.0.2:8443 over WireGuard) --> mgmt01:8443 (portal + Guacamole, nothing else)
 #
 # mgmt01 has its own Let's Encrypt certificate for this name, so this hop is verified.
@@ -15,10 +15,12 @@ server {
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
     add_header Strict-Transport-Security "max-age=31536000" always;
 
-    auth_basic "Lab";
-    auth_basic_user_file /etc/nginx/lab.htpasswd;
+    # Sign-in gate: oauth2-proxy (vps/oauth2-proxy/), one session for lab. and pve.
+    include snippets/lab-gate.conf;
 
     location / {
+        auth_request /oauth2/auth;
+        error_page 401 = @lab_sign_in;
         proxy_pass https://10.99.0.2:8443;
         proxy_ssl_verify on;
         proxy_ssl_verify_depth 2;                        # site -> LE intermediate -> root (nginx default: 1)
@@ -31,7 +33,6 @@ server {
         proxy_set_header Connection $http_connection;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Authorization "";               # the lab never sees the demo password
         proxy_buffering off;
         proxy_read_timeout 3600s;
         client_max_body_size 64m;
