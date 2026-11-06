@@ -17,6 +17,7 @@ server {
     location / {
         proxy_pass https://10.99.0.2:8006;
         proxy_ssl_verify on;
+        proxy_ssl_verify_depth 2;                        # site -> LE intermediate -> root (nginx default: 1)
         proxy_ssl_server_name on;
         proxy_ssl_name pve.radicallydecent.com;
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
