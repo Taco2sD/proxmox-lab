@@ -92,6 +92,20 @@ def install_started(user):
     log(f"{m['host']}: installing")
 
 
+def removal_step(user, step):
+    """Record a step of a removal (queued, recorded, destroying, destroyed, cleaning)
+    the first time it happens; the admin page shows them as progress."""
+    with lock:
+        m = load(user)
+        if not m:
+            return
+        steps = m.setdefault("removal", {})
+        if step not in steps:
+            steps[step] = time.time()
+            save(m)
+            log(f"{m['host']}: removal {step}")
+
+
 def never_built(m):
     """Rejected before anything was committed: nothing exists in git, AD or Proxmox."""
     return m["state"] == "failed" and "recorded" not in m["phases"]
@@ -203,7 +217,8 @@ def batch(reqs):
                 (PASSWORDS / user).unlink(missing_ok=True)
                 continue
             (GUESTS / f"{m['host']}.yml").unlink(missing_ok=True)
-            mark(user, state="removing")
+            # Removal progress is its own timeline (a retry starts it afresh)
+            mark(user, state="removing", error=None, removal={"queued": req["time"]})
             removes.append(user)
 
     for path, _ in reqs:          # every request now has a machine file (or was dropped)
@@ -229,17 +244,25 @@ def batch(reqs):
         return
     for u in creates:
         mark(u, "recorded")
+    for u in removes:
+        removal_step(u, "recorded")
 
     stamp = time.strftime("%Y%m%d-%H%M%S")
     host_of = {f"ws-{u}": u for u in creates}
+    removing = {f"ws-{u}": u for u in removes}
 
     def follow(line):   # OpenTofu's progress lines name each VM
-        m = re.search(r'workstation\["(ws-[a-z0-9]+)"\]: (Creating|Creation complete)', line)
-        if m and m.group(1) in host_of:
+        m = re.search(r'workstation\["(ws-[a-z0-9]+)"\]: (Creating|Creation complete|Destroying|Destruction complete)', line)
+        if not m:
+            return
+        host, what = m.groups()
+        if host in host_of:
             # infra.yml and otp.yml run before OpenTofu, so identity is done once it starts
-            mark(host_of[m.group(1)], "identity")
-            if m.group(2) == "Creation complete":
-                mark(host_of[m.group(1)], "created")
+            mark(host_of[host], "identity")
+            if what == "Creation complete":
+                mark(host_of[host], "created")
+        elif host in removing:
+            removal_step(removing[host], "destroying" if what == "Destroying" else "destroyed")
 
     env = {**os.environ, "LAB_YES": "1"}
     with open(LOGS / f"{stamp}-apply.log", "w") as f:
@@ -258,6 +281,9 @@ def batch(reqs):
     elif removes:
         # AD user + computer account, autoinstall record, DHCP lease and with it the
         # A/PTR records (dhcp_server role), then the portal's own files
+        for u in removes:
+            removal_step(u, "destroyed")      # a retry: the VM was already gone
+            removal_step(u, "cleaning")
         with open(LOGS / f"{stamp}-prune.log", "w") as f:
             rc, tail = run(["lab", "prune"], f, env=env)
         for u in removes:

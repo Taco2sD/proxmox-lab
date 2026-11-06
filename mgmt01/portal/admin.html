@@ -45,6 +45,15 @@ td.mono { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-s
 .detail { font-size:.8rem; color:var(--muted); white-space:normal; max-width:280px; }
 .detail.err { color:var(--bad); }
 .empty { padding:40px; text-align:center; color:var(--muted); }
+.bar { height:6px; width:180px; background:var(--soft); border-radius:99px; overflow:hidden; margin:8px 0 4px; }
+.bar > div { height:100%; background:var(--warn); border-radius:99px; transition:width .6s ease; }
+.notice { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; border-radius:10px; padding:12px 14px;
+          margin-bottom:12px; border:1px solid var(--line); background:var(--card); font-size:.9rem; }
+.notice.ok { border-color:var(--ok); } .notice.err { border-color:var(--bad); } .notice.info { border-color:var(--accent); }
+.notice.ok span::before { content:"✓ "; color:var(--ok); font-weight:700; }
+.notice.err span::before { content:"! "; color:var(--bad); font-weight:700; }
+.notice .x { background:transparent; border:0; color:var(--muted); font-size:1.2rem; line-height:1; padding:0 4px; }
+@media (prefers-reduced-motion: reduce) { .bar > div { transition:none; } }
 dialog { border:0; border-radius:14px; padding:22px; width:min(460px, calc(100vw - 32px)); background:var(--card); color:var(--text); box-shadow:0 24px 64px rgba(0,0,0,.35); }
 dialog::backdrop { background:rgba(10,14,22,.55); }
 dialog h2 { margin:0 0 10px; font-size:1.15rem; }
@@ -113,40 +122,94 @@ function showLogin(message = "") {
 }
 
 // ---------------------------------------------------------------- machines
+// A removal's steps, as the worker records them (worker.py, removal_step)
+const REMOVAL = [
+  ["queued", "Deletion requested"],
+  ["recorded", "Removal committed to git"],
+  ["destroying", "Destroying the VM"],
+  ["destroyed", "VM and disk removed"],
+  ["cleaning", "Removing AD accounts, DHCP lease, DNS records and install record"],
+];
+const deleting = new Map();     // user -> host, for deletions started from this page
+const notices = [];             // banners: { kind: "ok" | "err" | "info", text }
 let timer = null, me = null, phaseNames = {};
+
+function notice(kind, text) {
+  notices.unshift({ kind, text });
+  notices.splice(4);
+}
+
+function removalCell(m) {
+  const done = REMOVAL.filter(([k]) => k in (m.removal || {})).length;
+  const now = REMOVAL.find(([k]) => !(k in (m.removal || {})));
+  return [
+    el("span", { class: "status removing" }, "Deleting"),
+    el("div", { class: "bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": REMOVAL.length + 1, "aria-valuenow": done },
+      el("div", { style: `width:${Math.round(100 * done / (REMOVAL.length + 1))}%` })),
+    el("div", { class: "detail" }, `Step ${Math.min(done + 1, REMOVAL.length)} of ${REMOVAL.length}: ${now ? now[1] : "finishing"}`),
+  ];
+}
+
 async function showMachines(user) {
   me = user || me;
   clearTimeout(timer);
   const r = await api("/api/admin/machines");
   if (r.status === 403) return showLogin("Your session ended. Sign in again.");
-  if (r.ok) phaseNames = Object.fromEntries(r.data.phases);
-  const rows = (r.data.machines || []).map(m => {
+  if (!r.ok) { timer = setTimeout(showMachines, 5000); return; }
+  phaseNames = Object.fromEntries(r.data.phases);
+  const machines = r.data.machines || [];
+
+  // Deletions started here: report when they finish or fail
+  for (const [u, host] of [...deleting]) {
+    const m = machines.find(x => x.user === u);
+    if (!m) {
+      notice("ok", `${host} is deleted: its VM and disk, AD accounts, DHCP lease and DNS records, install record and inventory file are all gone.`);
+      deleting.delete(u);
+    } else if (m.state === "failed") {
+      notice("err", `Deleting ${host} failed: ${m.error || "unknown error"}. You can retry it below.`);
+      deleting.delete(u);
+    }
+  }
+
+  const rows = machines.map(m => {
     const ph = m.phases || {};
     const last = Object.entries(ph).sort((a, b) => b[1] - a[1])[0] || ["queued", Date.now() / 1000];
     const next = r.data.phases.map(p => p[0]).find(k => !(k in ph));
-    const detail = m.state === "failed" ? el("div", { class: "detail err" }, m.error || "")
-      : m.state === "building" ? el("div", { class: "detail" }, `Now: ${phaseNames[next] || ""}`) : null;
+    const removalFailed = m.state === "failed" && m.removal;
+    let status;
+    if (m.state === "removing") status = removalCell(m);
+    else status = [el("span", { class: "status " + m.state }, removalFailed ? "Deletion failed" : (STATUS[m.state] || m.state)),
+                   m.state === "failed" ? el("div", { class: "detail err" }, m.error || "")
+                   : m.state === "building" ? el("div", { class: "detail" }, `Now: ${phaseNames[next] || ""}`) : null];
+    const action = m.state === "removing"
+      ? el("button", { class: "danger-ghost", disabled: true }, "Deleting…")
+      : el("button", { class: "danger-ghost", onclick: () => confirmDelete(m) }, removalFailed ? "Retry delete" : "Delete");
     return el("tr", {},
       el("td", { class: "mono" }, m.host, m.vmid ? el("div", { class: "detail" }, `VM ${m.vmid}`) : null),
       el("td", {}, m.user), el("td", {}, m.role === "artist" ? "Artist" : m.role === "programmer" ? "Programmer" : m.role),
       el("td", { class: "mono" }, m.ip || "–"),
-      el("td", {}, el("span", { class: "status " + m.state }, STATUS[m.state] || m.state), detail),
+      el("td", {}, status),
       el("td", { class: "muted small" }, `${phaseNames[last[0]] || last[0]}`, el("div", { class: "detail" }, ago(last[1]))),
-      el("td", {}, el("button", { class: "danger-ghost", onclick: () => confirmDelete(m) }, "Delete")));
+      el("td", {}, action));
   });
-  const busy = (r.data.machines || []).some(m => m.state === "building" || m.state === "removing");
+  const busy = machines.some(m => m.state === "building" || m.state === "removing") || deleting.size > 0;
   $("#app").replaceChildren(
     el("header", {},
       el("div", {}, el("h1", {}, "Guest workstations"),
-        el("div", { class: "muted small" }, `${rows.length} machine${rows.length === 1 ? "" : "s"} · signed in as ${me}`)),
+        el("div", { class: "muted small" }, `${rows.length} machine${rows.length === 1 ? "" : "s"} · signed in as ${me}` +
+          (busy ? " · updating live" : ""))),
       el("div", { style: "display:flex;gap:8px" },
         el("a", { href: "/", class: "muted small", style: "align-self:center;margin-right:8px" }, "Portal"),
         el("button", { class: "ghost", onclick: async () => { await api("/api/admin/logout", {}); showLogin(); } }, "Sign out"))),
+    el("div", { "aria-live": "polite" }, notices.map((n, i) =>
+      el("div", { class: "notice " + n.kind, role: n.kind === "err" ? "alert" : "status" },
+        el("span", {}, n.text),
+        el("button", { class: "x", "aria-label": "Dismiss", onclick: () => { notices.splice(i, 1); showMachines(); } }, "×")))),
     el("div", { class: "card table-wrap" }, rows.length
       ? el("table", {}, el("thead", {}, el("tr", {}, ["Machine", "Owner", "Role", "Address", "Status", "Last step", ""].map(h => el("th", {}, h)))),
           el("tbody", {}, rows))
       : el("div", { class: "empty" }, "No guest workstations.")));
-  timer = setTimeout(showMachines, busy ? 3000 : 10000);
+  timer = setTimeout(showMachines, busy ? 2000 : 10000);
 }
 
 // ---------------------------------------------------------------- delete
@@ -163,6 +226,12 @@ $("#del-confirm").addEventListener("click", async () => {
   $("#del-confirm").disabled = false;
   $("#del").close();
   if (r.status === 403) return showLogin("Your session ended. Sign in again.");
+  if (r.ok) {
+    deleting.set(target.user, target.host);
+    notice("info", `Deleting ${target.host}. Progress is shown in its row; this takes about a minute.`);
+  } else {
+    notice("err", `Couldn't start deleting ${target.host}: ${r.data.error || "unknown error"}`);
+  }
   showMachines();
 });
 

@@ -188,9 +188,14 @@ def all_guests():
     for path in MACHINES.glob("*.json"):
         m = read_json(path)
         if m:
-            rows.append({k: m.get(k) for k in ("user", "role", "host", "ip", "vmid", "state", "error", "phases")})
+            rows.append({k: m.get(k) for k in ("user", "role", "host", "ip", "vmid", "state", "error", "phases", "removal")})
     for path in REQUESTS.glob("*.json"):
         r = read_json(path)
+        if r and r.get("action") == "delete":
+            # Deletion requested, not picked up by the worker yet: show it at once
+            for x in rows:
+                if x["user"] == r["user"] and x["state"] != "removing":
+                    x.update(state="removing", error=None, removal={"queued": r["time"]})
         if r and r.get("action") == "create" and not any(x["user"] == r["user"] for x in rows):
             rows.append({"user": r["user"], "role": r["role"], "host": f"ws-{r['user']}", "ip": "", "vmid": None,
                          "state": "building", "error": None, "phases": {"queued": r["time"]}})
