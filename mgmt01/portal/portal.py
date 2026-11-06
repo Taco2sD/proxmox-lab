@@ -125,12 +125,14 @@ def new_password():
 
 # ---------------------------------------------------------------- lab admins (/admin)
 # Admins sign in with their AD account; only members of ws-admins (nested membership
-# counts) get in. The password is checked by binding to dc01 over LDAPS, trusting only
-# Samba's own CA, and is never stored. A signed cookie then carries the session.
-DC_HOST = "dc01.ad.lab.internal"
+# counts) get in. The password is checked by binding to dc01 over LDAPS (Let's Encrypt
+# certificate for dc01.lab.radicallydecent.com, a name that exists only inside the lab,
+# verified with the system trust store) and is never stored. A signed cookie then
+# carries the session.
+DC_HOST = "dc01.lab.radicallydecent.com"
 BASE_DN = "DC=ad,DC=lab,DC=internal"
 ADMIN_GROUP_DN = "CN=ws-admins,OU=Groups,OU=Lab," + BASE_DN
-SAMBA_CA = "/etc/lab-portal/samba-ca.pem"
+SAMBA_CA = "/etc/ssl/certs/ca-certificates.crt"
 SESSION_KEY = Path("/etc/lab-portal/session-key")
 SESSION_SECONDS = 8 * 3600
 COOKIE = "lab_admin"

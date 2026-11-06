@@ -4,15 +4,86 @@
 # infra.yml, and a deployment restarts the worker. Deploying from inside a run would
 # kill the run that does the deploying.
 
-# The admin page checks passwords against dc01 over LDAPS; dc01's certificate comes from
-# Samba's own CA, so the portal trusts exactly that CA (not the whole system store).
-- name: dc01 - Samba's CA for the portal
+# Names under lab.radicallydecent.com resolve inside the lab (AD DNS), so lab machines
+# use the same HTTPS names and certificates as the internet, where `lab` points at the
+# VPS. And the admin page checks passwords against dc01 over LDAPS, with a Let's Encrypt
+# certificate for dc01.lab.radicallydecent.com (DNS-01 via acme-dns like every other
+# name; it exists only inside the lab). Samba's auto-generated certificate fails strict
+# X.509 checking (Python 3.13+: "Missing Authority Key Identifier").
+- name: dc01 - lab names in AD DNS, LDAPS certificate
   hosts: dc01
+  vars:
+    ldaps_name: dc01.lab.radicallydecent.com
   tasks:
-    - name: Read Samba's CA certificate
-      ansible.builtin.slurp:
-        src: /var/lib/samba/private/tls/ca.pem
-      register: samba_ca
+    - name: Zone lab.radicallydecent.com in AD DNS
+      ansible.builtin.shell: |
+        samba-tool dns zonelist 127.0.0.1 -P | grep -q "pszZoneName *: lab.radicallydecent.com$" && exit 0
+        samba-tool dns zonecreate 127.0.0.1 lab.radicallydecent.com -P && echo created
+      register: zone
+      changed_when: "'created' in zone.stdout"
+
+    - name: Records in it (lab -> mgmt01, dc01 -> dc01)
+      ansible.builtin.shell: |
+        samba-tool dns query 127.0.0.1 lab.radicallydecent.com {{ item.name }} A -P 2>/dev/null | grep -q "A: {{ item.ip }}" && exit 0
+        samba-tool dns add 127.0.0.1 lab.radicallydecent.com {{ item.name }} A {{ item.ip }} -P && echo added
+      loop:
+        - { name: "@", ip: 10.10.10.6 }
+        - { name: dc01, ip: 10.10.10.5 }
+      register: rec
+      changed_when: "'added' in rec.stdout"
+
+    - name: certbot
+      ansible.builtin.apt:
+        name: certbot
+        state: present
+
+    - name: acme-dns hook, and the Samba deploy hook
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "0755"
+      loop:
+        - { src: "{{ playbook_dir }}/../mgmt01/portal/certbot-acme-dns-hook", dest: /usr/local/sbin/certbot-acme-dns-hook }
+        - { src: "{{ playbook_dir }}/../dc01/samba-tls-deploy", dest: /usr/local/sbin/samba-tls-deploy }
+
+    - name: Hook settings (acme-dns API on the VPS, account directory)
+      ansible.builtin.copy:
+        content: |
+          ACMEDNS_API=https://acme-ns.radicallydecent.com
+          ACMEDNS_ACCOUNTS=/etc/acme-dns-client
+        dest: /etc/default/certbot-acme-dns
+        mode: "0644"
+
+    - name: The acme-dns account must be in place (copied by hand, never committed)
+      ansible.builtin.stat:
+        path: /etc/acme-dns-client/dc01.json
+      register: dc01_acct
+      failed_when: not dc01_acct.stat.exists
+
+    - name: Certificate for {{ ldaps_name }} (certbot.timer renews; the hook restarts Samba)
+      ansible.builtin.command: >-
+        certbot certonly --non-interactive --agree-tos --email jesse@radicallydecent.com
+        --manual --preferred-challenges dns
+        --manual-auth-hook /usr/local/sbin/certbot-acme-dns-hook
+        --deploy-hook /usr/local/sbin/samba-tls-deploy
+        --cert-name {{ ldaps_name }} -d {{ ldaps_name }}
+      args:
+        creates: "/etc/letsencrypt/live/{{ ldaps_name }}/fullchain.pem"
+
+    - name: Samba uses it for LDAPS
+      ansible.builtin.lineinfile:
+        path: /etc/samba/smb.conf
+        regexp: "^\\s*tls {{ item.key }}\\s*="
+        line: "\ttls {{ item.key }} = {{ item.value }}"
+        insertafter: '^\[global\]'
+      loop: "{{ {'certfile': 'tls/le-cert.pem', 'keyfile': 'tls/le-key.pem', 'cafile': 'tls/le-chain.pem'} | dict2items }}"
+      notify: Restart Samba
+
+  handlers:
+    - name: Restart Samba
+      ansible.builtin.systemd_service:
+        name: samba-ad-dc
+        state: restarted
 
 - name: mgmt01 - self-service portal
   hosts: mgmt01
@@ -24,12 +95,6 @@
         path: /etc/lab-portal
         state: directory
         mode: "0755"
-
-    - name: Samba's CA, for LDAPS to dc01
-      ansible.builtin.copy:
-        content: "{{ hostvars['dc01'].samba_ca.content | b64decode }}"
-        dest: /etc/lab-portal/samba-ca.pem
-        mode: "0644"
 
     - name: LDAP client for the admin sign-in
       ansible.builtin.apt:
@@ -236,23 +301,3 @@
     # Docker reads environment variables only when a container is created
     - name: Recreate Guacamole
       ansible.builtin.command: docker compose -f /etc/lab-portal/guacamole/compose.yml up -d --force-recreate
-
-# The portal's name resolves to mgmt01 inside the lab, so lab machines (and installers)
-# use the same HTTPS name and certificate as visitors on the internet, where the name
-# points at the VPS.
-- name: dc01 - lab.radicallydecent.com inside the lab
-  hosts: dc01
-  tasks:
-    - name: Zone lab.radicallydecent.com in AD DNS
-      ansible.builtin.shell: |
-        samba-tool dns zonelist 127.0.0.1 -P | grep -q "pszZoneName *: lab.radicallydecent.com$" && exit 0
-        samba-tool dns zonecreate 127.0.0.1 lab.radicallydecent.com -P && echo created
-      register: zone
-      changed_when: "'created' in zone.stdout"
-
-    - name: lab.radicallydecent.com -> mgmt01
-      ansible.builtin.shell: |
-        samba-tool dns query 127.0.0.1 lab.radicallydecent.com @ A -P 2>/dev/null | grep -q "A: 10.10.10.6" && exit 0
-        samba-tool dns add 127.0.0.1 lab.radicallydecent.com @ A 10.10.10.6 -P && echo added
-      register: rec
-      changed_when: "'added' in rec.stdout"
