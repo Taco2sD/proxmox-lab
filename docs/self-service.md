@@ -40,9 +40,11 @@ read `workstations.yml` plus every file in `guests/`.
 MAC BC:24:11:00:00:3N. The portal refuses new requests when the configured limit is
 reached (pve01 has room for about four installs at a time).
 
-**The visitor gets an AD account.** The portal creates `<username>` in the role's group
-(artists or programmers) with RFC2307 attributes and a generated password, which is stored
-only on mgmt01 (never in git). Their machine admits only them and `ws-admins`: the
+**The visitor gets an AD account.** `<username>` is created in `OU=Guests` (role
+`ad_guest_users`) with RFC2307 attributes and a generated password, which is stored only
+on mgmt01 (never in git). It is deliberately not put in the role's group (artists or
+programmers): that would admit them on every machine of the role. Their machine admits
+only them and `ws-admins`: the
 workstation reads its own `inventory/guests/<host>.yml` from its git checkout and adds the
 owner to SSSD's `simple_allow_users`.
 
