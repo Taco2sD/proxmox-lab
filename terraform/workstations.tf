@@ -27,11 +27,12 @@ resource "proxmox_virtual_environment_vm" "workstation" {
     cores = 2
   }
 
-  # Ballooning: boot with up to 5 GB (the netboot installer holds the 2.7 GB ISO in RAM),
-  # and let Proxmox reclaim memory down to 2 GB when the host runs short.
+  # 5 GB because the netboot installer holds the 2.7 GB ISO in RAM. No ballooning
+  # range: Proxmox shrank a VM mid-install and the installer deadlocked. The balloon
+  # device stays (min = max) for free page reporting, which hands memory the guest
+  # has freed back to the host, so idle workstations don't keep 5 GB each.
   memory {
     dedicated = 5120
-    floating  = 2048
   }
 
   efi_disk {
