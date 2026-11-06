@@ -1,0 +1,21 @@
+[Unit]
+Description=acme-dns (DNS-01 challenges for the lab's certificates)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=acme-dns
+Group=acme-dns
+WorkingDirectory=/var/lib/acme-dns
+ExecStart=/usr/local/bin/acme-dns -c /etc/acme-dns/config.cfg
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/acme-dns
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

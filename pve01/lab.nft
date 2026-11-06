@@ -1,0 +1,16 @@
+# /etc/wireguard/lab.nft on pve01, loaded by wg-quick@lab (PostUp). Traffic arriving
+# through the tunnel from the VPS may only reach the Proxmox UI (8006) and the portal
+# relay (8443, see lab-portal-relay.socket). No forwarding into the lab.
+table inet wglab {
+  chain input {
+    type filter hook input priority filter - 10; policy accept;
+    iifname "lab" ct state established,related accept
+    iifname "lab" tcp dport { 8006, 8443 } accept
+    iifname "lab" icmp type echo-request accept
+    iifname "lab" drop
+  }
+  chain forward {
+    type filter hook forward priority filter - 10; policy accept;
+    iifname "lab" drop
+  }
+}
