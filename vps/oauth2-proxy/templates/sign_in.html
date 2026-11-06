@@ -36,8 +36,8 @@ button { width:100%; margin-top:22px; font:inherit; font-weight:600; border-radi
   <main class="card">
     <div class="brand"><span class="mark" aria-hidden="true"></span>Radically Decent · Lab</div>
     <h1>Sign in</h1>
-    <p class="lead">This lab is private. Sign in with the account you were given.</p>
-    {{ if eq .StatusCode 400 401 }}<p class="error" role="alert">That username and password didn't work. Try again.</p>{{ end }}
+    <p class="lead">This lab is private. Sign in with the lab access account you were given.</p>
+    {{ if eq .StatusCode 400 401 }}<p class="error" role="alert">That username and password didn't work. This page takes the lab access account, not a domain (AD) account; those are for the admin page, after this one.</p>{{ end }}
     {{ if .CustomLogin }}
     <form method="POST" action="{{.ProxyPrefix}}/sign_in">
       <input type="hidden" name="rd" value="{{.Redirect}}">
