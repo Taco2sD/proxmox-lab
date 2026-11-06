@@ -29,7 +29,13 @@ print("\n".join(sorted(hosts)))
 PY
 }
 vm_hosts() {
-  tf state list 2>/dev/null | sed -n 's/^proxmox_virtual_environment_vm\.workstation\["\(.*\)"\]$/\1/p' | sort
+  tf state list 2>/dev/null | sed -n 's/^proxmox_virtual_environment_vm\.workstation\["\(.*\)"\]$/\1/p' | LC_ALL=C sort
+}
+# comm needs both lists in the same order. Plain `sort` follows the locale, which
+# ignores "-": it put ws01 before ws-tester while Python put ws-tester first, and comm
+# then missed the new guest (no one-time password, failed install). Byte order for both.
+new_hosts() {
+  LC_ALL=C comm -23 <(inventory_hosts | LC_ALL=C sort) <(vm_hosts)
 }
 confirm() {   # confirm <word>: the user must type <word>
   [ "${LAB_YES:-}" = 1 ] && return 0
@@ -50,7 +56,7 @@ case "${1:-}" in
     tf show -no-color lab.tfplan | grep -E '^  # .* will be' || true
     confirm apply
     ap ansible/infra.yml                                # AD accounts, DHCP reservations, host records
-    for h in $(comm -23 <(inventory_hosts) <(vm_hosts)); do
+    for h in $(new_hosts); do
       echo "==> $h is new: one-time join password"
       ap ansible/otp.yml -e host="$h"
     done

@@ -33,7 +33,8 @@ REQUESTS, MACHINES, PASSWORDS = STATE / "requests", STATE / "machines", STATE / 
 LOGS = Path("/var/log/lab-portal")
 ACCESS_LOG = Path("/var/log/nginx/access.log")
 MAX_GUESTS = int(os.environ.get("LAB_PORTAL_MAX_GUESTS", "4"))
-DC = ["ssh", "-n", "-o", "BatchMode=yes", "jrhodes@10.10.10.5"]   # the runner key from `lab`
+STALL = 20 * 60   # seconds without a new phase before a build counts as failed
+DC =["ssh", "-n", "-o", "BatchMode=yes", "jrhodes@10.10.10.5"]   # the runner key from `lab`
 GIT_ID = ["-c", "user.name=Lab portal", "-c", "user.email=lab-portal@mgmt01.ad.lab.internal"]
 
 lock = threading.Lock()   # machine files are written by the batch loop and the log follower
@@ -76,6 +77,19 @@ def mark(user, phase=None, **fields):
             log(f"{m['host']}: {phase}")
         m.update(fields)
         save(m)
+
+
+def install_started(user):
+    with lock:
+        m = load(user)
+        if not m:
+            return
+        for later in ("installing", "installed", "ready"):
+            m["phases"].pop(later, None)
+        m["phases"]["installing"] = time.time()
+        m.update(state="building", error=None)
+        save(m)
+    log(f"{m['host']}: installing")
 
 
 def never_built(m):
@@ -256,23 +270,41 @@ def follow_access_log():
                 time.sleep(1)
                 continue
             m = LINE.match(line)
-            if not m or m.group(3) not in ("200", "204"):
+            if not m:
                 continue
-            ip, path = m.group(1), m.group(2)
+            ip, path, ok = m.group(1), m.group(2), m.group(3) in ("200", "204")
             for mach in all_machines():
-                if mach.get("ip") != ip or mach.get("state") != "building":
+                if mach.get("ip") != ip or "recorded" not in mach["phases"]:
                     continue
-                if path.endswith("/user-data"):
-                    mark(mach["user"], "installing")
+                user, state = mach["user"], mach["state"]
+                if path.endswith("/user-data") and ok:
+                    # the installer fetches this exactly once per install, so it means a
+                    # (re)install starts now, e.g. an admin reimaging a failed machine
+                    install_started(user)
+                elif state != "building":
+                    continue
+                elif path.endswith("/otp") and ok:
+                    mark(user, "installed")
                 elif path.endswith("/otp"):
-                    mark(mach["user"], "installed")
-                elif path == "/lab-events/configured":
-                    mark(mach["user"], "ready", state="ready")
+                    # the installer stops at "An error occurred" when it can't get this
+                    mark(user, state="failed", error=f"the installer could not fetch its one-time join password (HTTP {m.group(3)})")
+                elif path == "/lab-events/configured" and ok:
+                    mark(user, "ready", state="ready")
         except FileNotFoundError:
             time.sleep(1)
         except Exception as e:   # never let the follower die silently
             log(f"log follower: {e!r}")
             time.sleep(5)
+
+
+def fail_stalled():
+    """A build with no new phase for STALL seconds has stopped somewhere (the installer
+    waits at an error prompt forever). Say so instead of showing progress that isn't."""
+    for m in all_machines():
+        if m["state"] == "building" and "recorded" in m["phases"]:
+            phase, since = max(m["phases"].items(), key=lambda kv: kv[1])
+            if time.time() - since > STALL:
+                mark(m["user"], state="failed", error=f"no progress for {STALL // 60} minutes after '{phase}'")
 
 
 def main():
@@ -291,6 +323,7 @@ def main():
                 for r in reqs:
                     if (m := load(r["user"])) and m["state"] == "building" and "created" not in m["phases"]:
                         mark(r["user"], state="failed", error="internal error in the portal worker")
+        fail_stalled()
         time.sleep(3)
 
 
