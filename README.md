@@ -10,10 +10,10 @@ It runs nested on a single Windows 11 PC: Hyper-V → Proxmox VE → the lab VMs
 ## What it does
 
 ```text
-provision-ws ws03                                   (one command on the hypervisor)
- ├─ AD (dc01)      reset the pre-staged computer account to a fresh one-time password
- ├─ mgmt01         write ws03's autoinstall record + one-time password (served only to ws03's IP)
- └─ Proxmox        blank disk, boot
+lab reimage ws03                                    (one command, on the mgmt01 runner)
+ ├─ Ansible        AD account + role, DHCP reservation, autoinstall record (from inventory/)
+ ├─ Ansible        fresh one-time AD join password (served only to ws03's IP)
+ └─ OpenTofu       replace ws03's VM: new blank disk, boot
                      │
      UEFI PXE ──► shim ──► GRUB ──► Ubuntu autoinstall (unattended)
                      │
@@ -26,7 +26,8 @@ provision-ws ws03                                   (one command on the hypervis
 ```
 
 After that the machine pulls its configuration from git every ~30 minutes and corrects
-any drift. Changing a machine's role is an AD group change; changing policy is a git push.
+any drift. Changing a machine's role or adding a machine is a line in
+`inventory/workstations.yml` plus `lab apply`; changing policy is a git push.
 
 ## Architecture
 
@@ -50,8 +51,8 @@ flowchart LR
 | Host | What | Notes |
 |---|---|---|
 | `dc01` | Samba AD DC (`AD.LAB.INTERNAL`), DNS, dnsmasq DHCP | RFC2307 Unix IDs in AD; reverse zone; DHCP registers clients in DNS |
-| `mgmt01` | Unprivileged LXC: tftpd-hpa, nginx | Signed shim + GRUB for Secure Boot PXE; per-host autoinstall records |
-| `pve01` | Proxmox VE, nested in Hyper-V | `provision-ws` lives here |
+| `mgmt01` | Unprivileged LXC: tftpd-hpa, nginx, the `lab` runner | Signed shim + GRUB for Secure Boot PXE; per-host autoinstall records; runs OpenTofu and Ansible |
+| `pve01` | Proxmox VE, nested in Hyper-V | VMs managed through its API by OpenTofu (`terraform@pve`, not root) |
 | `ws01..03` | Ubuntu 26.04 workstations | Joined to AD, self-managing via `ansible-pull` |
 
 ## Design decisions
@@ -87,15 +88,24 @@ flowchart LR
 ```text
 host-setup/   Hyper-V + Proxmox build scripts (enable Hyper-V, create the nested VM,
               boot the PVE installer on Gen 2, Proxmox post-install)
-dc01/         dnsmasq DHCP config and the DHCP→DNS update script
-mgmt01/       autoinstall template and the nginx rule that guards one-time passwords
-pve01/        provision-ws: hands-off (re)imaging
-ansible/      the configuration the workstations pull (base, ad_join, artist, programmer)
+inventory/    workstations.yml: which workstations exist (read by OpenTofu and Ansible)
+terraform/    OpenTofu: the workstation VMs
+ansible/      local.yml: what workstations pull (base, ad_join, artist, programmer)
+              infra.yml, otp.yml: AD accounts, DHCP reservations, autoinstall records
+dc01/         dnsmasq base config and the DHCP→DNS update script
+mgmt01/       the `lab` command, the autoinstall template, the nginx OTP rule
+docs/         boundaries.md: which tool owns what, and why
 ```
 
-This repo is the source of truth. Workstations pull `ansible/` straight from GitHub, and
-`provision-ws` fetches the autoinstall template from here for every build, so a push
-reaches the whole fleet within about 30 minutes.
+This repo is the source of truth. Workstations pull `ansible/` straight from GitHub;
+the runner on mgmt01 pulls before every `lab` command.
+
+```text
+lab plan              what would change (read-only)
+lab apply             make the lab match inventory/workstations.yml
+lab reimage <host>    rebuild one workstation (keeps its AD account and role)
+lab prune             remove AD accounts and records of workstations that left the inventory
+```
 
 ## Things that broke, and why
 
@@ -110,7 +120,9 @@ Most of the learning was here. Each of these is fixed in the code above.
 | DHCP server's DNS updates REFUSED | AD DNS name objects are owned by whoever created them, including empty "tombstoned" ones left by earlier client self-registration | Single writer (the DHCP service account); clients don't register |
 | Every Ansible run "changed" sssd.conf and restarted SSSD | `sssd.service` resets `/etc/sssd` to `root:sssd`, group-readable, on every start; the role wrote `0600` | Write `root:sssd 0640`, matching what the service enforces |
 | First boot and later runs disagreed about the machine's AD groups | Refreshing local facts mid-play is unreliable in ansible-core 2.20, and the old fact names are deprecated | The role runs the AD lookup directly and stores it in one variable |
-| Reimaged VM reinstalled itself 8 times | `qm disk unlink` also removes the disk from the boot order, so the VM kept PXE-booting | `provision-ws` sets `--boot order=scsi0;net0` explicitly |
+| Reimaged VM reinstalled itself 8 times | The first reimage script used `qm disk unlink`, which also removes the disk from the boot order, so the VM kept PXE-booting | The VM definition sets `boot_order = ["scsi0", "net0"]` explicitly |
+| Installer: kernel panic, "System is deadlocked on memory" | A ballooning range let Proxmox shrink the VM mid-install; the installer's RAM-held ISO can't be given back | Fixed memory (no balloon range); free page reporting still returns freed memory to the host |
+| A reimage held the OpenTofu state lock for 15 minutes | The provider waits up to 15 minutes for the guest agent; an installing or crashed VM has none | `agent.timeout = "30s"`, and `stop_on_destroy` so a crashed VM is powered off instead of waited on |
 
 ## What I'd do differently in production
 
