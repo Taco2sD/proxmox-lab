@@ -87,6 +87,12 @@ autoinstall:
           Type=oneshot
           ExecStart=/usr/local/sbin/lab-generalize
     runcmd:
+{% if pxe_first_boot_packages %}
+      # The {{ image_kind }} image's own software, installed here on the builder's disk
+      # rather than by the installer: the network installer runs from RAM (the whole ISO
+      # is in memory), and a desktop's worth of packages there exhausted it
+      - [sh, -c, "DEBIAN_FRONTEND=noninteractive apt-get install -y -q {{ pxe_first_boot_packages | join(' ') }}"]
+{% endif %}
       - [systemctl, daemon-reload]
       # enabled now, runs on each clone's first boot (not on the builder: it powers off first)
       - [systemctl, enable, lab-firstboot.service]

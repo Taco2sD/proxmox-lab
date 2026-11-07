@@ -43,8 +43,11 @@
   vars:
     pxe_admin_hash: "{{ lookup('ansible.builtin.file', pxe_admin_hash_file) | trim }}"
     pxe_admin_key: "{{ lookup('ansible.builtin.file', pxe_admin_key_file) | trim }}"
-    pxe_packages: >-
-      {{ image_packages + ((desktop_packages + pxe_desktop_role_packages) if image_kind == 'desktop' else []) }}
+    # Stage 1 (the installer, running from RAM) gets the common packages only; the
+    # desktop's large set goes in at the builder's first boot, on its own disk
+    pxe_packages: "{{ image_packages }}"
+    pxe_first_boot_packages: >-
+      {{ (desktop_packages + pxe_desktop_role_packages) if image_kind == 'desktop' else [] }}
 
 - name: Write meta-data too (the NoCloud datasource wants both files)
   ansible.builtin.copy:

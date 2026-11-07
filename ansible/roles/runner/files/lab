@@ -378,7 +378,7 @@ def image_build(op, kind):
     # network installer needs: it holds the whole ISO in memory.
     px.wait(px.call("POST", node, {
         "vmid": target, "name": b["name"], "tags": "lab-image", "ostype": "l26",
-        "machine": "q35", "bios": "ovmf", "cores": 2, "memory": 5120,
+        "machine": "q35", "bios": "ovmf", "cores": 2, "memory": 8192,
         "efidisk0": f"{ds}:1,efitype=4m,pre-enrolled-keys=1", "scsihw": "virtio-scsi-single",
         "scsi0": f"{ds}:{disk},discard=on,ssd=1,iothread=1",
         "net0": f"virtio={b['mac']},bridge={cfg['pve_bridge']}", "rng0": "source=/dev/urandom",
