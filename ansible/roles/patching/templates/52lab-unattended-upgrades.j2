@@ -1,0 +1,24 @@
+// /etc/apt/apt.conf.d/52lab-unattended-upgrades, managed by Ansible (roles/patching).
+// Read after the package's own 50unattended-upgrades: "#clear" empties the origin lists
+// that file sets, so only the security origin below is ever upgraded automatically.
+// Check what would happen: unattended-upgrade --dry-run -v
+#clear Unattended-Upgrade::Allowed-Origins;
+#clear Unattended-Upgrade::Origins-Pattern;
+Unattended-Upgrade::Origins-Pattern {
+{% if ansible_facts['distribution'] == 'Debian' %}
+        // Debian's security archive only. Never Proxmox's repository: a Proxmox VE
+        // upgrade (kernel, QEMU, pve-manager) is a planned `apt full-upgrade` with a
+        // reboot of every VM behind it, not something to run unattended at 06:00.
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+{% else %}
+        // Ubuntu's security pocket only (not -updates, -backports or ESM)
+        "origin=Ubuntu,archive=${distro_codename}-security,label=Ubuntu";
+{% endif %}
+};
+// Reboots are a person's call (RebootRequired alert); kernels wait in /boot meanwhile
+Unattended-Upgrade::Automatic-Reboot "false";
+// Old kernels left behind by security updates would slowly fill /boot
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+// No global Dpkg::Options here: they would apply to every apt run on the machine,
+// including a deliberate upgrade. unattended-upgrades already skips a package whose
+// changed config file would need a question answered; it shows up as still pending.

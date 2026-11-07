@@ -1,0 +1,45 @@
+# Security updates, installed automatically every day on every lab machine: dc01, pve01
+# and mgmt01 (ansible/site.yml) and the workstations (ansible/local.yml). Security
+# updates only, never automatic reboots:
+#   - security pockets carry fixes to the versions already installed, so they are the
+#     part of patching that is safe to automate; feature updates (-updates, Proxmox's
+#     own repository) are deliberate, planned work
+#   - a reboot is a decision about a service's downtime (pve01 takes every VM with it),
+#     so it stays with a person: the RebootRequired alert (roles/monitoring) says when one
+#     is due, and the dashboards show what's pending per machine
+#
+# Ubuntu's own unattended-upgrades machinery does the work: apt-daily.timer refreshes
+# the package lists, apt-daily-upgrade.timer installs (about 06:00, randomised by up to
+# an hour). Both take apt's locks, so they queue with ansible-pull's and Ansible's apt
+# tasks rather than collide; the apt collector behind the dashboards only reads.
+# docs/kb/issues/KB-0005-no-automatic-security-updates.md has why this role exists.
+
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+    # apt-daily-upgrade may be installing updates right now: wait for it, don't fail
+    lock_timeout: 600
+
+- name: Daily package lists and security updates
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      // Managed by Ansible (roles/patching): what apt's daily timers do
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    mode: "0644"
+
+- name: Security origins only, no automatic reboots
+  ansible.builtin.template:
+    src: 52lab-unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/52lab-unattended-upgrades
+    mode: "0644"
+
+- name: Keep apt's daily timers running
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: [apt-daily.timer, apt-daily-upgrade.timer]

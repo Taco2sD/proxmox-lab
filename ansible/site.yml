@@ -9,6 +9,7 @@
   hosts: dc01
   roles:
     - node_exporter  # metrics for Prometheus (roles/monitoring)
+    - patching       # security updates every day, no automatic reboots
     - lab_dns        # AD DNS zones for the public names, so lab machines reach lab hosts
     - dhcp_server    # dnsmasq: base config, per-host reservations directory, DNS hook
     - samba_ldaps    # Let's Encrypt certificate for LDAPS (the admin page signs in over it)
@@ -18,6 +19,7 @@
   hosts: pve01
   roles:
     - node_exporter  # metrics for Prometheus (roles/monitoring)
+    - patching       # Debian security updates every day (never Proxmox's own), no reboots
     - portal_relay   # tunnel -> mgmt01:8443, and the tunnel's firewall
     - pve_backups    # nightly backups of dc01 and mgmt01
 
@@ -25,6 +27,7 @@
   hosts: mgmt01
   roles:
     - node_exporter  # metrics for Prometheus (roles/monitoring)
+    - patching       # security updates every day, no automatic reboots
     - runner         # lab, lablib, state directories, the reconciler timer
     - lab_web        # nginx: HTTPS sites, certificate, lab-events log, join-password rules
     - pxe            # TFTP boot menu, the image builder's install record, ISO over HTTP

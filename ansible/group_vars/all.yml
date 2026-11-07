@@ -87,10 +87,11 @@ idle_hibernate_minutes: 2880   # 48 hours
 images:
   headless: {vmids: [9000, 9001], source: ubuntu-server-minimal}
   desktop: {vmids: [9002, 9003], source: ubuntu-server}
-# Baked into both images (roles base and ad_join still make sure of them)
+# Baked into both images (roles base, ad_join, node_exporter and patching still make sure
+# of them; unattended-upgrades: security updates from the first boot on)
 image_packages: [qemu-guest-agent, ansible-core, git, curl, vim, htop, tmux, adcli, sssd-ad, sssd-tools,
                  krb5-user, libnss-sss, libpam-sss, ldap-utils, libsasl2-modules-gssapi-mit, bind9-dnsutils,
-                 prometheus-node-exporter]
+                 prometheus-node-exporter, unattended-upgrades]
 # The desktop itself (roles/desktop; baked into the desktop image): Ubuntu's own GNOME
 # desktop and login screen. People reach it as the VM's screen, in the browser (My lab:
 # Desktop, pve01's console relay through Guacamole) or in the Proxmox UI.

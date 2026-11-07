@@ -8,6 +8,7 @@
     - base       # tools, time from the DC, the ansible-pull timer
     - ad_join    # join AD once; ask AD for this machine's roles and owner; who may log in
     - node_exporter  # metrics for Prometheus on mgmt01 (roles/monitoring)
+    - patching   # security updates every day, no automatic reboots
   tasks:
     # ad_join sets ad_groups: the AD groups this computer account belongs to. Each
     # "role-<name>" group means catalog/<name>.yml applies here.
