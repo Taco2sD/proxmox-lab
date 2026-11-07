@@ -7,8 +7,9 @@ workstation is one command, and nobody types or sees a secret along the way.
 
 On top of that sits a **self-service portal**: a visitor picks a username and a role,
 watches the lab build their workstation from scratch (about eight minutes), and opens a
-terminal on it in the browser. Lab admins can delete any of those machines from the same
-portal, and the deletion removes every trace: VM, AD accounts, DHCP, DNS and records.
+terminal on it in the browser. Lab admins can select any workstations, fleet or guest, on
+the portal's admin page and delete them together; each deletion removes every trace: VM,
+AD accounts, DHCP, DNS and records. The lab's own machines aren't listed there.
 
 It runs nested on a single Windows 11 PC: Hyper-V → Proxmox VE → the lab VMs. A small
 VPS is its public front door; the lab itself accepts no inbound connections.

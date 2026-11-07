@@ -99,7 +99,8 @@ def find(token):
 
 def in_use():
     """Machines that exist or are being built, plus requests not picked up yet."""
-    users = {p.stem for p in MACHINES.glob("*.json") if (m := read_json(p)) and not never_built(m)}
+    users = {p.stem for p in MACHINES.glob("*.json")
+             if (m := read_json(p)) and not never_built(m) and not m.get("fleet")}
     users |= {(read_json(p) or {}).get("user") for p in REQUESTS.glob("*.json")}
     return len(users - {None})
 
@@ -182,24 +183,65 @@ def session_user(cookie):
     return None
 
 
-def all_guests():
-    """Every guest machine, whatever its state, plus requests not picked up yet."""
-    rows = []
+INVENTORY = Path("/opt/proxmox-lab/inventory")   # the runner's checkout (worker.py keeps it current)
+# The admin page lists workstations only: what's in the workstation inventory. The
+# lab's own machines aren't in it, and are refused by name as well (and by the worker).
+INFRA = {"pve01", "dc01", "mgmt01"}
+
+
+def inventory():
+    """{host: entry} for every workstation: the fleet (workstations.yml) and guest
+    machines (guests/<host>.yml), each entry marked with where it comes from."""
+    import yaml                                                       # python3-yaml
+    found = {}
+    try:
+        fleet = yaml.safe_load((INVENTORY / "workstations.yml").read_text()).get("workstations") or {}
+    except (OSError, ValueError, AttributeError, yaml.YAMLError):
+        fleet = {}
+    for host, e in fleet.items():
+        found[host] = {**e, "fleet": True}
+    for f in INVENTORY.glob("guests/*.yml"):
+        try:
+            for host, e in (yaml.safe_load(f.read_text()) or {}).items():
+                found[host] = {**e, "fleet": False}
+        except (OSError, ValueError, AttributeError, yaml.YAMLError):
+            pass
+    return {h: e for h, e in found.items() if h not in INFRA and isinstance(e, dict)}
+
+
+def all_workstations():
+    """Every workstation, whatever its state: the inventory, the portal's machine files
+    (builds, removals in progress, failures) and requests not picked up yet."""
+    rows = {}
     for path in MACHINES.glob("*.json"):
         m = read_json(path)
-        if m:
-            rows.append({k: m.get(k) for k in ("user", "role", "host", "ip", "vmid", "state", "error", "phases", "removal")})
+        if m and m.get("host"):
+            rows[m["host"]] = {k: m.get(k) for k in ("role", "host", "ip", "vmid", "state", "error", "phases", "removal")}
+            rows[m["host"]].update(owner=m.get("user") or m.get("owner"), fleet=bool(m.get("fleet")))
+    for host, e in inventory().items():
+        if host not in rows:                  # in service, nothing in progress
+            rows[host] = {"host": host, "role": e.get("role"), "ip": str(e.get("ip", "")), "vmid": e.get("vmid"),
+                          "owner": e.get("owner"), "fleet": e["fleet"], "state": "ready", "error": None,
+                          "phases": {}, "removal": None}
     for path in REQUESTS.glob("*.json"):
         r = read_json(path)
-        if r and r.get("action") == "delete":
+        if not r:
+            continue
+        if r.get("action") == "delete":
             # Deletion requested, not picked up by the worker yet: show it at once
-            for x in rows:
-                if x["user"] == r["user"] and x["state"] != "removing":
+            for host in r.get("hosts") or [f"ws-{r.get('user')}"]:
+                x = rows.get(host)
+                if x and x["state"] != "removing":
                     x.update(state="removing", error=None, removal={"queued": r["time"]})
-        if r and r.get("action") == "create" and not any(x["user"] == r["user"] for x in rows):
-            rows.append({"user": r["user"], "role": r["role"], "host": f"ws-{r['user']}", "ip": "", "vmid": None,
-                         "state": "building", "error": None, "phases": {"queued": r["time"]}})
-    return sorted(rows, key=lambda x: x["host"])
+        elif r.get("action") == "create" and f"ws-{r['user']}" not in rows:
+            rows[f"ws-{r['user']}"] = {"host": f"ws-{r['user']}", "owner": r["user"], "role": r["role"], "ip": "",
+                                       "vmid": None, "fleet": False, "state": "building", "error": None,
+                                       "phases": {"queued": r["time"]}, "removal": None}
+    checkins = read_json(MACHINES / "checkins.state") or {}
+    for x in rows.values():
+        x["checkin"] = checkins.get(x["ip"])
+    # Fleet first, then guest machines; each by name
+    return sorted(rows.values(), key=lambda x: (not x["fleet"], x["host"]))
 
 
 JSON_KEY = Path("/etc/lab-portal/json-secret-key")   # shared with Guacamole (guacamole.env)
@@ -295,7 +337,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/admin/machines":
             if not self.admin():
                 return self.send(403, {"error": "sign in"})
-            return self.send(200, {"machines": all_guests(), "phases": [p[:2] for p in PHASES]})
+            return self.send(200, {"machines": all_workstations(), "phases": [p[:2] for p in PHASES], "now": time.time()})
         if url.path == "/healthz":
             return self.send(200, "ok\n", "text/plain")
         if url.path == "/api/info":
@@ -376,13 +418,20 @@ class Handler(BaseHTTPRequestHandler):
         if not admin:
             return self.send(403, {"error": "sign in"})
         if path == "/api/admin/delete":
-            user = str(body.get("user", ""))
-            if not any(m["user"] == user for m in all_guests()):
-                return self.send(404, {"error": "No such workstation."})
-            write_atomic(REQUESTS / f"{time.time_ns()}-{user}-delete.json",
-                         {"action": "delete", "user": user, "admin": admin, "time": time.time()})
-            print(f"admin {admin} deletes ws-{user}", flush=True)
-            return self.send(200, {"ok": True})
+            hosts = body.get("hosts")
+            if not isinstance(hosts, list) or not hosts or len(hosts) > 50:
+                return self.send(400, {"error": "Pick at least one workstation."})
+            hosts = sorted({str(h) for h in hosts})
+            known = {m["host"]: m for m in all_workstations()}
+            if (bad := [h for h in hosts if h in INFRA or h not in known]):
+                return self.send(404, {"error": f"Not a workstation: {', '.join(bad)}."})
+            if (busy := [h for h in hosts if known[h]["state"] == "removing"]):
+                return self.send(409, {"error": f"Already being deleted: {', '.join(busy)}."})
+            # One request for all of them, so the worker removes them in one batch
+            write_atomic(REQUESTS / f"{time.time_ns()}-admin-delete.json",
+                         {"action": "delete", "hosts": hosts, "admin": admin, "time": time.time()})
+            print(f"admin {admin} deletes {', '.join(hosts)}", flush=True)
+            return self.send(200, {"ok": True, "hosts": hosts})
         return self.send(404, {"error": "not found"})
 
     def create(self, user, role):

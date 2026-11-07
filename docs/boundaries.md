@@ -7,7 +7,8 @@ tools ever manage the same object.
 
 The inventory declares which workstations exist: name, VM ID, MAC, IP and role.
 
-- `inventory/workstations.yml`: the hand-maintained fleet (ws01..04).
+- `inventory/workstations.yml`: the hand-maintained fleet (ws01..04). A lab admin
+  deleting a fleet machine from the portal removes its line (a commit by the portal).
 - `inventory/guests/<host>.yml`: one file per machine requested through the self-service
   portal, written and committed by the portal's worker, with an `owner` field.
 

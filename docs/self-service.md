@@ -3,8 +3,8 @@
 A web page where a visitor picks a username and a role, and the lab builds them a
 workstation: AD account, VM, network install, domain join, role, and a terminal in the
 browser when it's ready. Every request goes through git, the same as a hand-made change.
-Lab admins can delete any of these machines from the portal, and the deletion removes
-everything the lab created for it.
+Lab admins can delete any workstation from the portal, these and the fleet (ws01..04)
+alike, and the deletion removes everything the lab created for it.
 
 Code: `mgmt01/portal/` (web app, worker, pages, nginx and systemd config), deployed with
 `lab portal` (`ansible/portal.yml`).
@@ -58,7 +58,8 @@ once. So the worker takes every waiting request, makes one commit and runs one
 **One file per guest machine.** Requests live in `inventory/guests/<host>.yml`, not in
 `workstations.yml`. Adding or removing a machine is adding or deleting one file, so
 concurrent requests never conflict in git, the history reads as one commit per batch,
-and the hand-maintained file is never rewritten by a program.
+and the portal never adds to the hand-maintained file. The one edit it makes there is
+deleting a fleet machine's line when an admin deletes that machine (below).
 
 **Addresses come from slots.** Guest machines use slots 1–9: VM ID 13N, IP 10.10.10.3N,
 MAC BC:24:11:00:00:3N. The portal accepts at most four guest machines at a time (pve01's
@@ -110,18 +111,28 @@ install-record fetch restarts the timeline.
 
 ## Admin page and removal
 
-`/admin` lists every guest machine in any state. Sign-in is a lab admin's own AD
+`/admin` lists every workstation in any state: the fleet from `workstations.yml` and the
+guest machines, with each machine's last configuration run (every workstation reports
+one about every 30 minutes). The lab's own machines (pve01, dc01, mgmt01) are not
+workstations and aren't listed. They also can't be deleted by any request: the web side
+and the worker both refuse them by name, and neither OpenTofu nor `lab prune` manages
+anything outside the workstation inventory. Sign-in is a lab admin's own AD
 account: the portal binds to dc01 over LDAPS (Let's Encrypt certificate for
 `dc01.lab.radicallydecent.com`, a name that exists only inside the lab) and admits
 members of `ws-admins`, nested groups included. The password is never stored; a signed,
 HttpOnly, SameSite=Strict cookie carries the session for 8 hours. Sign-in attempts are
 rate-limited by nginx, and admin actions need a header only the page's own code sends.
 
-Deleting a machine (its owner or an admin) runs the same path in reverse, and the admin
-page shows each step live:
+An admin ticks one or more machines and presses **Delete** under the table; a warning
+lists every machine about to be destroyed and says it can't be undone. All of them go in
+one batch: one commit, one `lab apply`, one `lab prune`. An owner deletes only their own
+machine, from its tile. Either way the path is the build in reverse, and the admin page
+shows each machine's step live:
 
-1. the request is queued, and the machine's file is removed from `inventory/guests/` in
-   a commit that names who deleted it ("remove ws-x (by admin jrhodes)"),
+1. the request is queued, and the machine leaves the inventory (its file in
+   `inventory/guests/`, or a fleet machine's line in `workstations.yml`, checked to
+   parse to the same inventory minus that machine) in a commit that names who deleted it
+   ("remove ws03 (by admin jrhodes)"),
 2. `lab apply`: OpenTofu destroys the VM and its disk,
 3. `lab prune`: the owner's AD user and the computer account, the DHCP reservation, the
    DHCP lease (released with `dhcp_release`, so the DHCP hook deletes the A and PTR
@@ -130,7 +141,7 @@ page shows each step live:
 4. the portal's own status file and stored password.
 
 If the VM can't be destroyed, its accounts and records are left alone and the machine
-shows as failed; **Retry delete** runs the whole removal again, skipping what's done.
+shows as failed; deleting it again runs the whole removal again, skipping what's done.
 
 ## Exposure
 

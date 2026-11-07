@@ -5,7 +5,8 @@ Every few seconds it takes all waiting requests (from the web side, portal.py) a
 batch:
 
   1. assigns each new machine a free slot and writes inventory/guests/<host>.yml,
-     or deletes that file for a removal,
+     or, for a removal, deletes that file (a guest machine) or the machine's line in
+     inventory/workstations.yml (a fleet machine; only lab admins delete those),
   2. commits and pushes the batch to GitHub (the deploy key in /root/.ssh),
   3. runs `lab apply` once for the whole batch (and `lab prune` after removals).
 
@@ -26,8 +27,14 @@ import threading
 import time
 from pathlib import Path
 
+import yaml                                                    # python3-yaml
+
 REPO = Path("/opt/proxmox-lab")
 GUESTS = REPO / "inventory" / "guests"
+FLEET = REPO / "inventory" / "workstations.yml"
+# Never deleted from the portal, whatever a request says. They aren't in the
+# workstation inventory either, so OpenTofu and `lab prune` can't touch them anyway.
+INFRA = {"pve01", "dc01", "mgmt01"}
 STATE = Path("/var/lib/lab-portal")
 REQUESTS, MACHINES, PASSWORDS = STATE / "requests", STATE / "machines", STATE / "passwords"
 LOGS = Path("/var/log/lab-portal")
@@ -59,7 +66,9 @@ def load(user):
 
 
 def save(m):
-    path = MACHINES / f"{m['user']}.json"
+    """Machine files are named after the owner (guest machines), or "_<host>" for a
+    fleet machine being removed ("_" can't start a username)."""
+    path = MACHINES / f"{m.get('id') or m['user']}.json"
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(m, indent=1))
     os.chmod(tmp, 0o640)
@@ -148,6 +157,63 @@ def taken_slots():
     return used
 
 
+FLEET_LINE = re.compile(r"^  (ws[a-z0-9-]+):\s*\{[^{}]*\}\s*$")
+
+
+def fleet_hosts():
+    return {m.group(1) for line in FLEET.read_text().splitlines() if (m := FLEET_LINE.match(line))}
+
+
+def drop_from_fleet(host):
+    """Delete one machine's line from the hand-maintained workstations.yml. Only a
+    line in the file's own one-line format is touched, and the result must parse to
+    the same inventory minus that machine, or nothing is written."""
+    before = FLEET.read_text()
+    lines = before.splitlines(keepends=True)
+    kept = [l for l in lines if not ((m := FLEET_LINE.match(l.rstrip("\n"))) and m.group(1) == host)]
+    if len(kept) != len(lines) - 1:
+        raise ValueError(f"{host} is not exactly one line in workstations.yml")
+    if not any(FLEET_LINE.match(l.rstrip("\n")) for l in kept):    # the last one: keep a valid map
+        kept = ["workstations: {}\n" if l.rstrip() == "workstations:" else l for l in kept]
+    after = "".join(kept)
+    old, new = yaml.safe_load(before)["workstations"], yaml.safe_load(after)["workstations"]
+    if {k: v for k, v in old.items() if k != host} != new:
+        raise ValueError("the edit would change more than one machine in workstations.yml")
+    FLEET.write_text(after)
+
+
+def removal_target(host):
+    """(id, machine file) for deleting `host`: a guest machine's own file, or a new one
+    for a fleet machine (or for a guest file the portal has no record of)."""
+    for m in all_machines():
+        if m.get("host") == host and m.get("user"):
+            return m["user"], m
+    fleet, guest = host in fleet_hosts(), (GUESTS / f"{host}.yml").exists()
+    if not (fleet or guest):
+        return None, None
+    key = "_" + host
+    m = load(key)
+    if not m:
+        entry = (yaml.safe_load((GUESTS / f"{host}.yml").read_text()) if guest
+                 else yaml.safe_load(FLEET.read_text())["workstations"])[host]
+        m = {"id": key, "user": None, "owner": entry.get("owner"), "fleet": fleet, "host": host,
+             "ip": str(entry.get("ip", "")), "vmid": entry.get("vmid"), "role": entry.get("role"),
+             "state": "ready", "error": None, "phases": {}}
+        with lock:
+            save(m)
+    return key, m
+
+
+def remove_from_inventory(m):
+    (GUESTS / f"{m['host']}.yml").unlink(missing_ok=True)
+    if m.get("fleet") and m["host"] in fleet_hosts():   # (a retry: already gone)
+        drop_from_fleet(m["host"])
+
+
+def host_of(key):
+    return (load(key) or {}).get("host") or f"ws-{key}"
+
+
 # ---------------------------------------------------------------- one batch
 
 def take_requests():
@@ -181,7 +247,7 @@ def batch(reqs):
     deleted_by = {}
 
     for _, req in reqs:
-        user = req["user"]
+        user = req.get("user")
         if req["action"] == "create":
             old = load(user)
             if old and not never_built(old):
@@ -204,20 +270,41 @@ def batch(reqs):
                       "token_sha256": req["token_sha256"], "state": "building", "error": None,
                       "phases": {"queued": req["time"]}})
             creates.append(user)
+        elif req["action"] == "delete" and req.get("hosts"):
+            # A lab admin (checked against AD's ws-admins by the web side): any
+            # workstation in the inventory, guest or fleet, in any state
+            for host in req["hosts"]:
+                if host in INFRA or not re.fullmatch(r"ws[a-z0-9-]+", str(host)):
+                    log(f"refused to delete {host!r}: not a workstation")
+                    continue
+                key, m = removal_target(host)
+                if not m:
+                    log(f"delete {host}: not in the inventory")
+                    continue
+                deleted_by[key] = f"admin {req['admin']}"
+                if never_built(m):                          # rejected: nothing in git or AD
+                    (MACHINES / f"{key}.json").unlink(missing_ok=True)
+                    (PASSWORDS / key).unlink(missing_ok=True)
+                    continue
+                try:
+                    remove_from_inventory(m)
+                except ValueError as e:                     # workstations.yml edited by hand oddly
+                    mark(key, state="failed", error=str(e), removal={"queued": req["time"]})
+                    continue
+                # Removal progress is its own timeline (a retry starts it afresh)
+                mark(key, state="removing", error=None, removal={"queued": req["time"]})
+                removes.append(key)
         elif req["action"] == "delete":
+            # The owner, who proves it with their token
             m = load(user)
-            # The owner proves it with their token; a lab admin (checked against AD's
-            # ws-admins by the web side) may delete any guest machine, in any state.
-            admin = req.get("admin")
-            if not m or (not admin and m.get("token_sha256") != req.get("token_sha256")):
+            if not m or m.get("token_sha256") != req.get("token_sha256"):
                 continue
-            deleted_by[user] = f"admin {admin}" if admin else "owner"
-            if never_built(m):                              # rejected: nothing in git or AD
+            deleted_by[user] = "owner"
+            if never_built(m):
                 (MACHINES / f"{user}.json").unlink(missing_ok=True)
                 (PASSWORDS / user).unlink(missing_ok=True)
                 continue
-            (GUESTS / f"{m['host']}.yml").unlink(missing_ok=True)
-            # Removal progress is its own timeline (a retry starts it afresh)
+            remove_from_inventory(m)
             mark(user, state="removing", error=None, removal={"queued": req["time"]})
             removes.append(user)
 
@@ -226,8 +313,8 @@ def batch(reqs):
     if not creates and not removes:
         return
     parts = [f"add ws-{u} ({load(u)['role']}, owner {u})" for u in creates] + \
-            [f"remove ws-{u} (by {deleted_by[u]})" for u in removes]
-    git("add", "-A", "inventory/guests")
+            [f"remove {host_of(k)} (by {deleted_by[k]})" for k in removes]
+    git("add", "-A", "inventory")
     # Nothing to commit happens when retrying a removal whose file is already gone
     # from git; the clean-up below still runs.
     if git("diff", "--cached", "--quiet").returncode == 0:
@@ -248,19 +335,19 @@ def batch(reqs):
         removal_step(u, "recorded")
 
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    host_of = {f"ws-{u}": u for u in creates}
-    removing = {f"ws-{u}": u for u in removes}
+    creating = {f"ws-{u}": u for u in creates}
+    removing = {host_of(k): k for k in removes}
 
     def follow(line):   # OpenTofu's progress lines name each VM
-        m = re.search(r'workstation\["(ws-[a-z0-9]+)"\]: (Creating|Creation complete|Destroying|Destruction complete)', line)
+        m = re.search(r'workstation\["(ws[a-z0-9-]+)"\]: (Creating|Creation complete|Destroying|Destruction complete)', line)
         if not m:
             return
         host, what = m.groups()
-        if host in host_of:
+        if host in creating:
             # infra.yml and otp.yml run before OpenTofu, so identity is done once it starts
-            mark(host_of[host], "identity")
+            mark(creating[host], "identity")
             if what == "Creation complete":
-                mark(host_of[host], "created")
+                mark(creating[host], "created")
         elif host in removing:
             removal_step(removing[host], "destroying" if what == "Destroying" else "destroyed")
 
@@ -286,13 +373,15 @@ def batch(reqs):
             removal_step(u, "cleaning")
         with open(LOGS / f"{stamp}-prune.log", "w") as f:
             rc, tail = run(["lab", "prune"], f, env=env)
-        for u in removes:
+        for k in removes:
             if rc == 0:
-                (MACHINES / f"{u}.json").unlink(missing_ok=True)
-                (PASSWORDS / u).unlink(missing_ok=True)
-                log(f"removed ws-{u}")
+                host = host_of(k)
+                (MACHINES / f"{k}.json").unlink(missing_ok=True)
+                if not k.startswith("_"):
+                    (PASSWORDS / k).unlink(missing_ok=True)
+                log(f"removed {host}")
             else:
-                mark(u, state="failed", error=f"removal failed (log {stamp}-prune.log)")
+                mark(k, state="failed", error=f"removal failed (log {stamp}-prune.log)")
 
 
 # ---------------------------------------------------------------- nginx log follower
@@ -314,6 +403,23 @@ def read_position():
 def save_position(inode, pos):
     if read_position() != (inode, pos):
         POSITION.write_text(f"{inode} {pos}\n")
+
+
+CHECKINS = MACHINES / "checkins.state"     # here so the web side can read it (setgid dir)
+
+
+def check_in(ip):
+    """Every workstation, fleet or guest, requests /lab-events/configured at the end of
+    each configuration run (about every 30 minutes); the admin page shows the last one."""
+    try:
+        seen = json.loads(CHECKINS.read_text())
+    except (OSError, ValueError):
+        seen = {}
+    seen[ip] = time.time()
+    tmp = CHECKINS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(seen))
+    os.chmod(tmp, 0o640)
+    os.replace(tmp, CHECKINS)
 
 
 def follow_access_log():
@@ -344,6 +450,8 @@ def follow_access_log():
             if not m:
                 continue
             ip, path, ok = m.group(1), m.group(2), m.group(3) in ("200", "204")
+            if path == "/lab-events/configured" and ok:
+                check_in(ip)
             for mach in all_machines():
                 if mach.get("ip") != ip or "recorded" not in mach["phases"]:
                     continue
@@ -392,7 +500,7 @@ def main():
             except Exception as e:
                 log(f"batch failed: {e!r}")
                 for _, r in reqs:
-                    if (m := load(r["user"])) and m["state"] == "building" and "created" not in m["phases"]:
+                    if r.get("user") and (m := load(r["user"])) and m["state"] == "building" and "created" not in m["phases"]:
                         mark(r["user"], state="failed", error="internal error in the portal worker")
         fail_stalled()
         time.sleep(3)
