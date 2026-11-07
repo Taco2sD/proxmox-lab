@@ -11,7 +11,9 @@
          and shows every correction for you to confirm before anything is created.
      3. Workstation type (your team's by default), the password twice, optionally an SSH
         public key from your own laptop. POST /api/welcome/signup.
-     4. "My workstations": build progress, Connect (browser terminal), more machines.
+     4. The same card folds what they entered into one line and shows the first
+        workstation's build progress until it's ready (Open console). From then on, My
+        lab (/my, my.html) is their portal: workstations, consoles, more machines.
      portal.py fills in __CONFIG__ (roles, teams, build steps, the per-person limit).
      Shared look and helpers: /static/common.css and /static/common.js. -->
 <html lang="en"><head><meta charset="utf-8">
@@ -44,9 +46,16 @@ table.kv tr:last-child td { border-bottom:0; }
 ul.rules { list-style:none; padding:0; margin:8px 0 0; font-size:.85rem; }
 ul.rules li::before { content:"○ "; } ul.rules li.ok { color:var(--ok); } ul.rules li.ok::before { content:"● "; }
 .actions { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; margin-top:18px; }
-.machine { display:flex; flex-direction:column; gap:10px; }
-.machine-head { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:baseline; }
-.machine h3 { margin:0; font-size:1.05rem; }
+details.summary { margin:6px 0 10px; } details.summary summary { cursor:pointer; color:var(--muted); }
+details.summary summary b { color:var(--text); }
+.bar.big { height:10px; margin:16px 0 8px; }
+.row.between { justify-content:space-between; align-items:baseline; }
+.doing { font-weight:600; }
+ol.steps { list-style:none; padding:0; margin:14px 0 0; display:flex; flex-wrap:wrap; gap:6px 18px; font-size:.85rem; color:var(--muted); }
+ol.steps li::before { content:"○ "; } ol.steps li.done { color:var(--ok); } ol.steps li.done::before { content:"✓ "; }
+ol.steps li.current { color:var(--text); font-weight:600; } ol.steps li.current::before { content:"● "; color:var(--accent); }
+a.button { display:inline-block; text-decoration:none; font-weight:600; border-radius:8px; padding:8px 14px; border:1px solid transparent; }
+a.button.primary { background:var(--accent); color:var(--accent-text); } a.button.ghost { color:var(--text); border-color:var(--line); }
 code { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:.85em; background:var(--soft); padding:1px 5px; border-radius:5px; }
 a { color:var(--accent); }
 </style>
@@ -55,7 +64,6 @@ a { color:var(--accent); }
 <main>
   <header class="top">
     <div><h1 id="title">Welcome</h1><div class="muted small" id="subtitle">Set up your studio account and your workstation.</div></div>
-    <button class="ghost" id="signout" hidden>Sign out</button>
   </header>
   <div id="view" aria-live="polite"></div>
 </main>
@@ -81,7 +89,7 @@ function findView(user = "", message = null) {
     message,
     el("div", { class: "row" }, el("div", { class: "grow" }, el("label", { class: "field", for: "u" }, "Username"), input),
        el("button", { class: "primary", onclick: go }, "Look me up")),
-    el("p", { class: "small muted" }, "Set up already? ", el("a", { href: "#", onclick: e => { e.preventDefault(); signInView(input.value); } }, "Sign in"), " to see your workstations.")));
+    el("p", { class: "small muted" }, "Set up already? ", el("a", { href: "/my" }, "Sign in to My lab"), " to see your workstations.")));
   input.focus();
 }
 
@@ -94,7 +102,7 @@ async function lookup(user) {
   const details = personTable(p);
   if (p.set_up) return show(card(el("h2", {}, `Hi ${p.given}!`), details,
     el("div", { class: "note" }, "Your account is set up already."),
-    el("div", { class: "actions" }, el("button", { class: "primary", onclick: () => signInView(user) }, "Sign in"))));
+    el("div", { class: "actions" }, el("a", { class: "button primary", href: "/my" }, "Go to My lab"))));
   if (r.data.link !== "valid") {
     const why = { used: "That sign-up link has been used already.", expired: "Your sign-up link has expired. Ask your hiring manager for a new one.",
                   none: "This account is set up by the IT team. Ask them for help." }[r.data.link]
@@ -184,8 +192,8 @@ function setupView(s) {
     const r = await api("/api/welcome/signup", { admin: true, body: { username: s.user, token: TOKEN, person: s.person,
       password: pw.value, password2: pw2.value, pubkey: key.value, role: role.value } });
     if (!r.ok) { go.textContent = "Set up my account"; update(); return toast(r.data.error || "That didn't work. Try again."); }
-    history.replaceState(null, "", "/welcome");          // the sign-up link is spent: drop it from the address bar
-    meView();
+    buildView({ user: s.user, given: s.given, name: `${s.given} ${s.surname}`, details: s.details,
+                teamName: CONFIG.teams[s.team]?.name, started: Date.now() / 1000 });
   };
   show(card(
     el("h2", {}, `Hi ${s.given}! Let's set you up`), s.details,
@@ -200,90 +208,75 @@ function setupView(s) {
   pw.focus();
 }
 
-// ---------------------------------------------------------------- 4. signed in: my workstations
-function signInView(user = "") {
-  const u = el("input", { type: "text", id: "su", value: user, autocomplete: "username", autocapitalize: "none", spellcheck: "false" });
-  const pw = el("input", { type: "password", id: "spw", autocomplete: "current-password" });
-  const go = async () => {
-    const r = await api("/api/me/login", { admin: true, body: { username: u.value.trim().toLowerCase(), password: pw.value } });
-    if (!r.ok) return toast(r.data.error || "Couldn't sign in.");
-    meView();
-  };
-  pw.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
-  show(card(el("h2", {}, "Sign in"), el("label", { class: "field", for: "su" }, "Username"), u,
-    el("label", { class: "field", for: "spw" }, "Password"), pw,
-    el("div", { class: "actions" }, el("button", { class: "ghost", onclick: () => findView(u.value) }, "Back"),
-       el("button", { class: "primary", onclick: go }, "Sign in"))));
-  (user ? pw : u).focus();
-}
-
+// ---------------------------------------------------------------- 4. the first workstation
+// Same page, same card: what they entered folds into one line (expandable), and a
+// progress bar runs until the machine is ready. Everything after that is My lab (/my).
 let timer = null;
-async function meView() {
+function buildView(s) {
   clearTimeout(timer);
-  const r = await api("/api/me");
-  if (!r.ok) return params.get("u") ? lookup(params.get("u")) : findView();
-  const { user, person, onboarding, machines } = r.data;
-  $("#signout").hidden = false;
-  $("#title").textContent = person?.given ? `Hi ${person.given}` : "Your workstations";
-  $("#subtitle").textContent = person ? `${person.title || ""}${person.team_name ? " · " + person.team_name : ""}` : user;
-  const parts = [];
-  if (onboarding.state === "account") parts.push(card(el("h2", {}, "Setting up your account…"), el("div", { class: "bar" }, el("div", { style: "width:15%" }))));
-  if (onboarding.state === "failed") parts.push(card(el("h2", {}, "Your account couldn't be set up"),
-    el("div", { class: "note bad" }, onboarding.error || "Something went wrong."), el("p", { class: "small muted" }, "Ask the IT team for help.")));
-  if (onboarding.error && onboarding.state !== "failed") parts.push(el("div", { class: "note bad" }, `Your last request didn't go through: ${onboarding.error}.`));
-  for (const m of machines) parts.push(machineCard(m));
-  if (onboarding.state !== "account" && onboarding.state !== "failed" && machines.length < CONFIG.max_machines) parts.push(addCard(person));
-  show(...parts);
-  if (onboarding.state === "account" || machines.some(m => m.state === "building" || m.state === "removing")
-      || (onboarding.state === "ready" && !machines.length)) timer = setTimeout(meView, 3000);
+  history.replaceState(null, "", "/welcome#building");     // the link is spent; a reload comes back here
+  const bar = el("div", { style: "width:2%" }), doing = el("div", { class: "doing" }), left = el("span", { class: "muted small" });
+  const steps = el("ol", { class: "steps" });
+  const actions = el("div", { class: "actions" });
+  const heading = el("h2", {}, s.given ? `Thanks, ${s.given}! Building your workstation` : "Building your workstation");
+  const roleLine = el("div", { class: "small muted" });
+  show(card(heading,
+    el("details", { class: "summary" }, el("summary", {}, el("b", {}, s.name || s.user), ` · ${s.user}`,
+       s.teamName ? ` · ${s.teamName}` : ""), s.details || ""),
+    roleLine,
+    el("div", { class: "bar big" }, bar), el("div", { class: "row between" }, doing, left), steps, actions));
+  const order = ["start", "account", "identity", "created", "joining", "ready"];
+  const label = { account: "Your account", identity: "Machine identity", created: "Virtual machine",
+                  joining: "Domain join", ready: "Software and settings" };
+  const tick = async () => {
+    const r = await api("/api/me");
+    if (!r.ok) { timer = setTimeout(tick, 3000); return; }
+    const { onboarding: ob, machines, signup_pending, person } = r.data;
+    const m = machines[0];
+    if (person && !s.given) heading.textContent = `Thanks, ${person.given}! Building your workstation`;
+    if (m) roleLine.textContent = `${roleName(m.role)} workstation · ${specs(CONFIG.roles[m.role]?.size)}`;
+    const failed = ob.state === "failed" ? ob.error : m?.state === "failed" ? m.error : (!m && ob.error) ? ob.error : null;
+    const reached = { start: s.started || ob.started || Date.now() / 1000,
+                      account: (ob.state === "ready" || m) ? (ob.time || m?.phases?.queued) : null, ...(m?.phases || {}) };
+    const pr = buildProgress(order, reached);
+    bar.style.width = `${Math.max(2, pr.pct)}%`;
+    steps.replaceChildren(...order.slice(1).map(k =>
+      el("li", { class: reached[k] ? "done" : (STEP_DOING[k] === pr.doing ? "current" : "") }, label[k])));
+    if (failed) {
+      bar.parentNode.classList.add("warn");
+      doing.textContent = "Something went wrong"; left.textContent = "";
+      actions.replaceChildren(el("div", { class: "note bad" }, failed), el("a", { class: "button ghost", href: "/my" }, "Go to My lab"));
+      return;
+    }
+    if (m?.state === "ready") {
+      heading.textContent = "Your workstation is ready";
+      doing.textContent = `${m.host} · ${m.ip}`; left.textContent = "";
+      actions.replaceChildren(el("a", { class: "button ghost", href: "/my" }, "Go to My lab"),
+        el("button", { class: "primary", onclick: () => openConsole(m.host) }, "Open console"));
+      return;
+    }
+    doing.textContent = signup_pending ? "Sending your request…" : pr.doing + "…";
+    left.textContent = aboutLeft(pr.left);
+    timer = setTimeout(tick, 2000);
+  };
+  tick();
 }
 
-function machineCard(m) {
-  const keys = CONFIG.phases.map(p => p[0]);
-  const done = keys.filter(k => m.phases?.[k]).length;
-  const current = CONFIG.phases.find(p => !m.phases?.[p[0]]);
-  const ready = m.state === "ready";
-  return card(el("div", { class: "machine" },
-    el("div", { class: "machine-head" }, el("h3", {}, `${roleName(m.role)} workstation`),
-       el("span", { class: `status ${m.state}` }, { ready: "Ready", building: "Building", failed: "Failed", removing: "Deleting" }[m.state] || m.state)),
-    el("div", { class: "small muted mono" }, `${m.host}${m.ip ? " · " + m.ip : ""}`),
-    m.state === "building" ? [el("div", { class: "bar" }, el("div", { style: `width:${Math.max(8, done / keys.length * 100)}%` })),
-                              el("div", { class: "small" }, current ? current[1] + "…" : "")] : null,
-    m.error ? el("div", { class: "note bad" }, m.error) : null,
-    ready ? el("div", { class: "small muted" }, "From your laptop (with the key you gave): ", el("code", {}, `ssh ${m.user}@${m.ip}`),
-                " · or open the browser terminal and log in with your password.") : null,
-    el("div", { class: "actions" },
-      m.state !== "removing" ? el("button", { class: "ghost", onclick: () => remove(m) }, "Delete") : null,
-      ready ? el("button", { class: "primary", onclick: () => connect(m) }, "Open terminal") : null)));
-}
-
-function addCard(person) {
-  const role = el("select", {}, Object.entries(CONFIG.roles).map(([k, r]) => el("option", { value: k, selected: k === person?.role }, r.name)));
-  return card(el("h2", {}, "Another workstation"),
-    el("p", { class: "small muted" }, `Up to ${CONFIG.max_machines}, of any type your work needs.`),
-    el("div", { class: "row" }, el("div", { class: "grow" }, role),
-      el("button", { class: "primary", onclick: async () => {
-        const r = await api("/api/me/build", { admin: true, body: { role: role.value } });
-        toast(r.ok ? "Building it now." : r.data.error || "That didn't work."); setTimeout(meView, 1500); } }, "Build")));
-}
-
-async function connect(m) {
+async function openConsole(host) {
   const w = window.open("", "_blank");
-  const r = await api("/api/me/connect", { admin: true, body: { host: m.host } });
-  if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the terminal."); }
+  const r = await api("/api/me/connect", { admin: true, body: { host } });
+  if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the console."); }
   if (w) w.location = r.data.url; else location = r.data.url;
 }
 
-async function remove(m) {
-  if (!confirm(`Delete ${m.host}? Everything on it is gone for good.`)) return;
-  const r = await api("/api/me/delete", { admin: true, body: { host: m.host } });
-  toast(r.ok ? "Deleting it." : r.data.error || "That didn't work."); setTimeout(meView, 1500);
-}
-
-$("#signout").onclick = async () => { await api("/api/me/logout", { admin: true, body: {} }); location = "/welcome"; };
-
-// Start: a link from the welcome email (?u=…#t=…) looks the person up; otherwise
-// someone already signed in sees their workstations, and everyone else the lookup.
-if (params.get("u") && TOKEN) lookup(params.get("u").toLowerCase()); else meView();
+// Start: a link from the welcome email (?u=…#t=…) looks the person up; a reload during
+// the first build comes back to its progress; everyone else gets the lookup.
+(async () => {
+  if (params.get("u") && TOKEN) return lookup(params.get("u").toLowerCase());
+  const me = await api("/api/me");
+  if (me.ok && location.hash === "#building") return buildView({ user: me.data.user, name: me.data.person?.name });
+  findView(params.get("u") || "", me.ok ? el("div", { class: "note" }, `You're signed in as ${me.data.user}. `,
+    el("a", { href: "/my" }, "Go to My lab")) : null);
+})();
 </script>
 </body></html>

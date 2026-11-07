@@ -43,3 +43,37 @@ function toast(msg) {
   t.textContent = msg; t.classList.add("show");
   clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2400);
 }
+
+// ---- Workstation build progress (welcome.html, my.html)
+// A build passes lablib.PHASES (queued, identity, created, joining, ready); the record
+// keeps when each was reached. Each step's weight is roughly how many seconds it takes
+// in this lab (measured), so the bar moves at about real speed between the records'
+// updates instead of jumping. The welcome page puts "account" (the AD account being set
+// up) in front of them.
+const STEP_WEIGHTS = { account: 5, identity: 15, created: 25, joining: 20, ready: 70 };
+const STEP_DOING = {
+  account: "Setting up your account",
+  identity: "Creating the machine's identity in AD",
+  created: "Cloning the lab's golden image",
+  joining: "First boot: joining the domain",
+  ready: "Installing your software and settings",
+};
+// order: step keys, first = the start; reached: {step: unix time}. Returns
+// { pct (0-100), doing (what's happening now), left (seconds, estimate) }.
+function buildProgress(order, reached, now = Date.now() / 1000) {
+  let total = 0, done = 0, doing = null;
+  for (const k of order.slice(1)) total += STEP_WEIGHTS[k] || 10;
+  for (let i = 1; i < order.length; i++) {
+    const k = order[i], w = STEP_WEIGHTS[k] || 10;
+    if (reached[k]) { done += w; continue; }
+    const since = reached[order.slice(0, i).reverse().find(x => reached[x])];
+    doing = k;
+    if (since) done += w * Math.min(0.95, Math.max(0, now - since) / w);
+    break;
+  }
+  return { pct: Math.round(done / total * 100), doing: doing ? STEP_DOING[doing] : "Ready", left: Math.max(0, Math.round(total - done)) };
+}
+const aboutLeft = s => s > 90 ? `about ${Math.round(s / 60)} minutes left` : s > 15 ? "about a minute left" : "almost there";
+
+// A role's virtual hardware, as catalog/<role>.yml gives it: "2 vCPU · 3 GB RAM · 24 GB disk"
+const specs = size => size ? `${size.cores} vCPU · ${+(size.memory_mb / 1024).toFixed(1)} GB RAM · ${size.disk_gb} GB disk` : "";

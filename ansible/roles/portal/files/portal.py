@@ -16,8 +16,9 @@ binding to AD over LDAPS). It can only
 Pages:
   /         visitors: one tile per machine, build progress, Connect
   /welcome  the studio's people: look yourself up by username, sign up (set your
-            password, optionally an SSH key) and get a workstation for your team's role;
-            later, sign in to see your workstations and request more
+            password, optionally an SSH key) and watch your first workstation being built
+  /my       "My lab", their portal into the lab: workstations with specs and software,
+            consoles, more machines, their SSH key
   /mail     the demo mailbox: the welcome emails `lab people seed` wrote
   /admin    lab admins, signed in with an AD account in ws-admins: every workstation,
             multi-select delete, destroy approvals, Activity
@@ -284,8 +285,39 @@ def invite_state(user, token):
 
 
 def my_machines(user):
-    return [{**public_view(r), "password": None} for r in sorted(L.guests().values(), key=lambda r: r["host"])
-            if r.get("staff") and r.get("owner") == user]
+    """A staff member's workstations for My lab: their records (with the last finished
+    configuration run), then requests the worker hasn't picked up yet, so a new machine
+    shows up the moment it's asked for."""
+    checkins = L.read_json(L.CHECKINS) or {}
+    keep = ("host", "role", "ip", "vmid", "state", "error", "phases", "removal")
+    found = [{k: r.get(k) for k in keep} | {"checkin": checkins.get(r.get("ip"))}
+             for r in sorted(L.guests().values(), key=lambda r: r.get("vmid") or 0)
+             if r.get("staff") and r.get("owner") == user]
+    for p in sorted(L.REQUESTS.glob("*.json")):
+        q = L.read_json(p) or {}
+        if q.get("action") == "staff-create" and q.get("user") == user:
+            found.append({"host": None, "role": q["role"], "ip": None, "vmid": None, "state": "building",
+                          "error": None, "phases": {"queued": q["time"]}, "removal": None, "checkin": None})
+    return found
+
+
+def key_info(user):
+    """The SSH key someone gave (type, comment, fingerprint as ssh-keygen -l shows it)."""
+    try:
+        kind, blob, *comment = (L.KEYS / user).read_text(encoding="utf-8").split(maxsplit=2)
+        digest = base64.b64encode(hashlib.sha256(base64.b64decode(blob)).digest()).decode().rstrip("=")
+        return {"type": kind, "comment": " ".join(comment).strip(), "fingerprint": f"SHA256:{digest}"}
+    except (OSError, ValueError):
+        return None
+
+
+def signup_pending(user):
+    """True while the worker hasn't taken this person's sign-up yet (it deletes the file).
+    The directory can't be listed by the web side, but a known name can be checked."""
+    try:
+        return (L.SIGNUPS / f"{user}.json").exists()
+    except OSError:
+        return False
 
 
 def activity(limit=30):
@@ -297,7 +329,8 @@ def activity(limit=30):
 def render_page(page="portal.html"):
     """A page with the roles, teams and build steps filled in, so the page and the API
     never disagree about them."""
-    roles = {k: {"name": v["name"], "desc": v["description"], "tools": v["tools"]} for k, v in L.catalog().items()}
+    roles = {k: {"name": v["name"], "desc": v["description"], "tools": v["tools"], "size": v["size"]}
+             for k, v in L.catalog().items()}
     teams = {k: {"name": v["name"], "role": v["role"]} for k, v in L.teams().items()}
     config = {"roles": roles, "teams": teams, "phases": [p[:2] for p in L.PHASES],
               "max_machines": L.settings()["staff_max_machines"]}
@@ -350,6 +383,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, (HERE / "admin.html").read_text(encoding="utf-8"), "text/html")
         if path == "/welcome":
             return self.send(200, render_page("welcome.html"), "text/html")
+        if path == "/my":
+            return self.send(200, render_page("my.html"), "text/html")
         if path == "/mail":
             return self.send(200, (HERE / "mail.html").read_text(encoding="utf-8"), "text/html")
         if path == "/api/mail":
@@ -367,6 +402,7 @@ class Handler(BaseHTTPRequestHandler):
             p = L.people().get(user)
             return self.send(200, {"user": user, "person": person_view(user, p) if p else None,
                                    "onboarding": L.read_json(L.ONBOARDING / f"{user}.json") or {},
+                                   "signup_pending": signup_pending(user), "key": key_info(user),
                                    "machines": my_machines(user)})
         if path in STATIC:
             return self.send(200, (HERE / path.rsplit("/", 1)[1]).read_text(encoding="utf-8"), STATIC[path])
@@ -504,7 +540,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(409, {"error": "The lab is full right now. Try again later."})
             request({"action": "staff-create", "user": user, "role": role})
             return self.send(200, {"ok": True})
-        mine = {m["host"]: m for m in my_machines(user)}
+        if path == "/api/me/key":
+            pubkey = " ".join(str(body.get("pubkey", "")).split())
+            if pubkey and not PUBKEY.fullmatch(pubkey):
+                return self.send(400, {"error": "That doesn't look like an SSH public key (the one line in the .pub file)."})
+            request({"action": "staff-key", "user": user, "pubkey": pubkey})
+            return self.send(200, {"ok": True})
+        mine = {m["host"]: m for m in my_machines(user) if m["host"]}
         host = str(body.get("host", ""))
         if host not in mine:
             return self.send(404, {"error": "Not one of your workstations."})

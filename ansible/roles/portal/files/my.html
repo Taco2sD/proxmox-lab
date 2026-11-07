@@ -1,0 +1,238 @@
+<!doctype html>
+<!-- "My lab": a staff member's own portal into the lab, served by portal.py at /my
+     (deployed to mgmt01:/usr/local/lib/lab-portal/ by roles/portal). Signed in with
+     their AD password (or straight after signing up on /welcome).
+
+       - who they are in AD: name, title, team, manager, username
+       - their SSH key: the one sshd on every workstation they own asks mgmt01 for
+         (roles/ad_join, lab-keys.conf); add, replace or remove it here
+       - their workstations, each with build progress, virtual hardware and software
+         (catalog/<role>.yml), address, last configuration run, and its console
+         (the browser terminal) and an SSH command for their laptop
+       - New workstation: any role, up to staff_max_machines (ansible/group_vars/all.yml)
+     portal.py fills in __CONFIG__ (roles with size and tools, teams, build steps, limit).
+     Shared look and helpers: /static/common.css and /static/common.js. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My lab</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+main { max-width:1040px; margin:0 auto; padding:36px 16px 64px; }
+header.top { display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-bottom:24px; }
+.card { padding:20px; }
+h2.section { font-size:1.05rem; margin:28px 0 12px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+.profile { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:14px 20px; }
+.profile .k { color:var(--muted); font-size:.8rem; } .profile .v { font-weight:600; overflow-wrap:anywhere; }
+.keyrow { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-top:16px;
+          padding-top:16px; border-top:1px solid var(--line); }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px; }
+.ws { display:flex; flex-direction:column; gap:12px; }
+.ws-head { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+.ws h3 { margin:0; font-size:1.05rem; } .ws .host { font-size:.85rem; color:var(--muted); }
+table.facts { border-collapse:collapse; width:100%; font-size:.875rem; }
+table.facts th { text-align:left; font-weight:500; color:var(--muted); padding:4px 12px 4px 0; width:38%; vertical-align:top; }
+table.facts td { padding:4px 0; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; }
+.chip { background:var(--soft); border-radius:99px; padding:2px 10px; font-size:.8rem; }
+.cmd { display:flex; gap:8px; align-items:center; }
+.cmd code { flex:1; background:var(--soft); border-radius:6px; padding:6px 8px; font-size:.82rem; overflow-x:auto; white-space:nowrap; }
+.cmd button { padding:4px 10px; font-size:.8rem; }
+.foot { display:flex; gap:8px; justify-content:flex-end; margin-top:auto; flex-wrap:wrap; }
+.doing { font-size:.85rem; display:flex; justify-content:space-between; gap:8px; }
+.error { color:var(--bad); font-size:.875rem; }
+.empty { text-align:center; padding:48px 16px; border:1px dashed var(--line); border-radius:14px; }
+label.field { display:block; font-weight:600; margin:14px 0 6px; }
+input[type=text], input[type=password], textarea { width:100%; padding:10px 12px; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+textarea { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:.85rem; min-height:80px; }
+.roles { display:grid; gap:10px; margin:12px 0 4px; max-height:55vh; overflow:auto; }
+.role { display:flex; gap:12px; border:1px solid var(--line); border-radius:10px; padding:12px; cursor:pointer; }
+.role:has(input:checked) { border-color:var(--accent); background:var(--sel); }
+.role input { margin-top:4px; } .role b { display:block; } .role .small { margin-top:2px; }
+dialog { width:min(560px, calc(100vw - 32px)); }
+code { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:.85em; }
+</style>
+<script src="/static/common.js"></script></head>
+<body>
+<main>
+  <header class="top">
+    <div><h1 id="title">My lab</h1><div class="muted small" id="subtitle">Your workstations and account.</div></div>
+    <button class="ghost" id="signout" hidden>Sign out</button>
+  </header>
+  <div id="view" aria-live="polite"></div>
+</main>
+
+<dialog id="new" aria-labelledby="new-title"><form method="dialog" id="new-form">
+  <h2 id="new-title">New workstation</h2>
+  <div class="muted small" id="new-count"></div>
+  <div class="roles" id="roles"></div>
+  <div class="buttons" style="margin-top:16px"><button class="ghost" value="cancel" formnovalidate>Cancel</button>
+    <button class="primary" id="new-go" value="build">Build it</button></div>
+</form></dialog>
+
+<dialog id="keydlg" aria-labelledby="key-title"><form method="dialog">
+  <h2 id="key-title">Your SSH key</h2>
+  <p class="small muted">Paste the public key from your laptop (the one line in <code>~/.ssh/id_ed25519.pub</code>).
+    No key yet? Run <code>ssh-keygen -t ed25519</code> on the laptop; the private key never leaves it.
+    A security key works too (<code>-t ed25519-sk</code>). It works on all your workstations at once.</p>
+  <textarea id="key-text" spellcheck="false" placeholder="ssh-ed25519 AAAA… you@laptop"></textarea>
+  <div class="buttons" style="margin-top:16px"><button class="ghost" value="cancel" formnovalidate>Cancel</button>
+    <button class="ghost" value="remove" id="key-remove">Remove key</button>
+    <button class="primary" value="save">Save</button></div>
+</form></dialog>
+
+<dialog id="deldlg" aria-labelledby="del-title"><form method="dialog">
+  <h2 id="del-title">Delete this workstation?</h2>
+  <p id="del-text"></p>
+  <div class="buttons"><button class="ghost" value="cancel">Cancel</button><button class="danger" value="delete">Delete it</button></div>
+</form></dialog>
+
+<div class="toast" id="toast" role="status"></div>
+<script>
+const CONFIG = __CONFIG__;
+const view = $("#view");
+const roleName = r => CONFIG.roles[r]?.name || r;
+let state = null, timer = null;
+
+// ---------------------------------------------------------------- signing in
+function signInView() {
+  const u = el("input", { type: "text", id: "u", autocomplete: "username", autocapitalize: "none", spellcheck: "false" });
+  const pw = el("input", { type: "password", id: "pw", autocomplete: "current-password" });
+  const go = async () => {
+    const r = await api("/api/me/login", { admin: true, body: { username: u.value.trim().toLowerCase(), password: pw.value } });
+    if (!r.ok) return toast(r.data.error || "Couldn't sign in.");
+    load();
+  };
+  pw.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  view.replaceChildren(el("div", { class: "card", style: "max-width:420px; margin:0 auto" },
+    el("h2", { style: "margin:0" }, "Sign in"),
+    el("label", { class: "field", for: "u" }, "Username"), u, el("label", { class: "field", for: "pw" }, "Password"), pw,
+    el("div", { class: "buttons", style: "margin-top:18px" }, el("button", { class: "primary", onclick: go }, "Sign in")),
+    el("p", { class: "small muted" }, "New here? Use the link in your welcome email, or ", el("a", { href: "/welcome" }, "find your account"), ".")));
+  u.focus();
+}
+
+// ---------------------------------------------------------------- the page
+async function load() {
+  clearTimeout(timer);
+  const r = await api("/api/me");
+  if (r.status === 403) { $("#signout").hidden = true; return signInView(); }
+  if (!r.ok) { timer = setTimeout(load, 5000); return; }
+  state = r.data;
+  render();
+  const busy = state.signup_pending || state.onboarding.state === "account"
+            || state.machines.some(m => m.state === "building" || m.state === "removing");
+  timer = setTimeout(load, busy ? 2000 : 20000);
+}
+
+function render() {
+  const { user, person, machines, key, onboarding } = state;
+  $("#signout").hidden = false;
+  $("#title").textContent = person?.name || user;
+  $("#subtitle").textContent = [person?.title, person?.team_name].filter(Boolean).join(" · ") || "My lab";
+  const full = machines.length >= CONFIG.max_machines;
+  view.replaceChildren(
+    el("div", { class: "card" },
+      el("div", { class: "profile" }, fact("Username", user), fact("Team", person?.team_name), fact("Job title", person?.title),
+         fact("Manager", person?.manager), fact("Default workstation", roleName(person?.role))),
+      el("div", { class: "keyrow" },
+        el("div", {}, el("div", { class: "k muted small" }, "SSH key for your laptop"),
+           key ? el("div", { class: "mono small" }, `${key.type} ${key.fingerprint}${key.comment ? " (" + key.comment + ")" : ""}`)
+               : el("div", { class: "small" }, "None yet: you log in with your password, in the console.")),
+        el("button", { class: "ghost", onclick: editKey }, key ? "Replace key" : "Add a key"))),
+    onboarding.state === "failed" ? el("div", { class: "note bad error", style: "margin-top:16px" }, `Your account couldn't be set up: ${onboarding.error}`) : null,
+    onboarding.error && onboarding.state !== "failed" ? el("p", { class: "error" }, `Your last request didn't go through: ${onboarding.error}.`) : null,
+    el("h2", { class: "section" }, `Workstations (${machines.length} of ${CONFIG.max_machines})`,
+      el("button", { class: "primary", disabled: full, title: full ? "You have as many as anyone can have" : "", onclick: newWorkstation }, "+ New workstation")),
+    machines.length ? el("div", { class: "grid" }, machines.map(machineCard))
+      : el("div", { class: "empty" }, el("p", {}, "No workstations yet."), el("button", { class: "primary", onclick: newWorkstation }, "Build your first")));
+}
+
+const fact = (k, v) => el("div", {}, el("div", { class: "k" }, k), el("div", { class: "v" }, v || "–"));
+
+function machineCard(m) {
+  const role = CONFIG.roles[m.role] || {};
+  const status = { ready: "Ready", building: "Building", failed: "Failed", removing: "Deleting" }[m.state] || m.state;
+  let progress = null;
+  if (m.state === "building") {
+    const pr = buildProgress(CONFIG.phases.map(p => p[0]), m.phases || {});
+    progress = [el("div", { class: "bar" }, el("div", { style: `width:${Math.max(3, pr.pct)}%` })),
+                el("div", { class: "doing" }, el("span", {}, m.host ? pr.doing + "…" : "Request sent…"), el("span", { class: "muted" }, aboutLeft(pr.left)))];
+  }
+  const ssh = m.ip ? `ssh ${state.user}@${m.ip}` : null;
+  return el("div", { class: "card ws" },
+    el("div", { class: "ws-head" },
+      el("div", {}, el("h3", {}, `${roleName(m.role)} workstation`), el("div", { class: "host mono" }, m.host ? `${m.host}${m.ip ? " · " + m.ip : ""}` : "being set up")),
+      el("span", { class: `status ${m.state}` }, status)),
+    progress,
+    m.error ? el("div", { class: "error" }, m.error) : null,
+    el("table", { class: "facts" }, el("tbody", {},
+      el("tr", {}, el("th", {}, "Hardware"), el("td", {}, specs(role.size))),
+      el("tr", {}, el("th", {}, "System"), el("td", {}, "Ubuntu 26.04, joined to AD")),
+      el("tr", {}, el("th", {}, "Software"), el("td", {}, el("div", { class: "chips" }, (role.tools || []).map(t => el("span", { class: "chip" }, t))))),
+      m.phases?.queued ? el("tr", {}, el("th", {}, "Created"), el("td", {}, new Date(m.phases.queued * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))) : null,
+      m.checkin ? el("tr", {}, el("th", {}, "Last configured"), el("td", {}, ago(m.checkin))) : null)),
+    ssh && m.state === "ready" ? el("div", { class: "cmd" }, el("code", {}, ssh),
+      el("button", { class: "ghost", onclick: () => navigator.clipboard.writeText(ssh).then(() => toast("Copied.")) }, "Copy")) : null,
+    el("div", { class: "foot" },
+      m.host && m.state !== "removing" ? el("button", { class: "ghost", onclick: () => remove(m) }, "Delete") : null,
+      m.state === "ready" ? el("button", { class: "primary", onclick: () => openConsole(m.host) }, "Open console") : null));
+}
+
+// ---------------------------------------------------------------- actions
+async function openConsole(host) {
+  const w = window.open("", "_blank");
+  const r = await api("/api/me/connect", { admin: true, body: { host } });
+  if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the console."); }
+  if (w) w.location = r.data.url; else location = r.data.url;
+}
+
+function newWorkstation() {
+  const mine = state.person?.role;
+  $("#new-count").textContent = `You have ${state.machines.length} of ${CONFIG.max_machines}. Pick what your work needs.`;
+  $("#roles").replaceChildren(...Object.entries(CONFIG.roles).map(([k, r]) => el("label", { class: "role" },
+    el("input", { type: "radio", name: "role", value: k, checked: k === mine }),
+    el("div", {}, el("b", {}, r.name + (k === mine ? " (your team's)" : "")), el("div", { class: "small muted" }, r.desc),
+       el("div", { class: "small" }, specs(r.size)), el("div", { class: "chips", style: "margin-top:6px" }, r.tools.map(t => el("span", { class: "chip" }, t)))))));
+  $("#new").showModal();
+}
+$("#new").addEventListener("close", async () => {
+  if ($("#new").returnValue !== "build") return;
+  const role = new FormData($("#new-form")).get("role");
+  if (!role) return toast("Pick a workstation type.");
+  const r = await api("/api/me/build", { admin: true, body: { role } });
+  toast(r.ok ? `Building your ${roleName(role)} workstation.` : r.data.error || "That didn't work.");
+  load();
+});
+
+function editKey() {
+  $("#key-text").value = "";
+  $("#key-remove").hidden = !state.key;
+  $("#keydlg").showModal();
+}
+$("#keydlg").addEventListener("close", async () => {
+  const v = $("#keydlg").returnValue;
+  if (v !== "save" && v !== "remove") return;
+  const pubkey = v === "remove" ? "" : $("#key-text").value;
+  if (v === "save" && !pubkey.trim()) return;
+  const r = await api("/api/me/key", { admin: true, body: { pubkey } });
+  toast(r.ok ? (pubkey ? "Key saved: it works on all your workstations." : "Key removed.") : r.data.error || "That didn't work.");
+  setTimeout(load, 2500);                    // the worker writes it within a couple of seconds
+});
+
+let doomed = null;
+function remove(m) {
+  doomed = m;
+  $("#del-text").textContent = `${m.host} (${roleName(m.role)}) and everything on it will be gone for good. Your account stays.`;
+  $("#deldlg").showModal();
+}
+$("#deldlg").addEventListener("close", async () => {
+  if ($("#deldlg").returnValue !== "delete" || !doomed) return;
+  const r = await api("/api/me/delete", { admin: true, body: { host: doomed.host } });
+  toast(r.ok ? `Deleting ${doomed.host}.` : r.data.error || "That didn't work.");
+  load();
+});
+
+$("#signout").onclick = async () => { await api("/api/me/logout", { admin: true, body: {} }); location = "/my"; };
+load();
+</script>
+</body></html>

@@ -39,9 +39,15 @@ A new hire's welcome email gives them their username. On `/welcome`:
    through `/run/lab/signups` (memory only, read and deleted at once), which sets the
    account up on dc01 (`/usr/local/sbin/lab-people`, password over stdin) and builds
    the workstation like any guest machine, owned by them (`managedBy`).
-5. **Later.** They sign in with the AD password to see their workstations and build
-   more, of any type, up to `staff_max_machines`. Staff machines are named `ws<NN>`
-   after their VM ID; staff accounts stay when their machines go.
+   The same card then folds what they entered into one line and shows the first
+   workstation's progress (a bar weighted by how long each build step takes here)
+   until it's ready, with Open console.
+5. **My lab** (`/my`) is their portal from then on, signed in with the AD password:
+   who they are in AD, their SSH key (add, replace, remove), and each workstation with
+   its build progress, virtual hardware, software, address, last configuration run,
+   console and SSH command. They can build more, of any type, up to
+   `staff_max_machines`. Staff machines are named `ws<NN>` after their VM ID; staff
+   accounts stay when their machines go.
 
 **SSH keys.** The key someone gives is stored once, at `/var/www/lab/keys/<user>`, and
 every workstation's sshd asks mgmt01 for it on each key login (AuthorizedKeysCommand,

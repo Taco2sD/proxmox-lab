@@ -166,11 +166,7 @@ def signup(s):
         return onboarding(user, state="failed", error=str(e))
     log(f"sign-up {user}: account ready ({'created' if s.get('person') else 'claimed'})")
     if s.get("pubkey"):
-        # Public, so world-readable: nginx serves it to the workstations (roles/lab_web,
-        # lab-keys.conf), whose sshd asks for it on every key login (roles/ad_join)
-        L.KEYS.mkdir(parents=True, exist_ok=True)
-        (L.KEYS / user).write_text(s["pubkey"].strip() + "\n", encoding="utf-8")
-        os.chmod(L.KEYS / user, 0o644)
+        set_key(user, s["pubkey"])
     try:
         L.export_people()
     except Exception as e:                         # noqa: BLE001
@@ -179,12 +175,28 @@ def signup(s):
     staff_create(user, s["role"], s["time"])
 
 
+def set_key(user, pubkey):
+    """A person's SSH public key, or none. Public, so world-readable: nginx serves it to
+    the workstations (roles/lab_web: lab-keys.conf), whose sshd asks for it on every key
+    login (roles/ad_join), so a new or replaced key works on all their machines at once."""
+    path = L.KEYS / user
+    if not pubkey:
+        path.unlink(missing_ok=True)
+        return log(f"{user}: SSH key removed")
+    L.KEYS.mkdir(parents=True, exist_ok=True)
+    path.write_text(pubkey.strip() + "\n", encoding="utf-8")
+    os.chmod(path, 0o644)
+    return log(f"{user}: SSH key set")
+
+
 def handle(req):
     action = req.get("action")
     if action == "create":
         create(req)
     elif action == "staff-create":                       # a signed-in staff member (checked by the web side)
         staff_create(req["user"], req["role"], req["time"])
+    elif action == "staff-key" and L.USER_RE.fullmatch(req.get("user", "")):
+        set_key(req["user"], req.get("pubkey", ""))
     elif action == "staff-delete":
         r = L.read_json(L.guest_path(req.get("host", ""))) or {}
         if r.get("staff") and r.get("owner") == req.get("user"):

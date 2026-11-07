@@ -32,7 +32,7 @@
     src: "{{ item }}"
     dest: /usr/local/lib/lab-portal/
     mode: "0755"
-  loop: [portal.py, worker.py, portal.html, admin.html, welcome.html, mail.html, common.css, common.js]
+  loop: [portal.py, worker.py, portal.html, admin.html, welcome.html, my.html, mail.html, common.css, common.js]
   notify: Restart portal
 
 - name: Install the systemd units
