@@ -1,5 +1,0 @@
-# ws04: fleet workstation (see inventory/workstations/README.md for the format)
-vmid: 124
-mac: "BC:24:11:00:00:24"
-ip: 10.10.10.24
-role: artist

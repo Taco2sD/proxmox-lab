@@ -1,5 +1,0 @@
-# ws03: fleet workstation (see inventory/workstations/README.md for the format)
-vmid: 123
-mac: "BC:24:11:00:00:23"
-ip: 10.10.10.23
-role: programmer
