@@ -17,8 +17,25 @@ cloud-init clean --logs --seed --machine-id --configs all || cloud-init clean --
 rm -f /etc/cloud/cloud.cfg.d/99-installer.cfg \
       /etc/cloud/cloud.cfg.d/90-installer-network.cfg \
       /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg
-# The builder's network config names its MAC; clones get theirs from cloud-init.
+# Networking: DHCP on whatever wired NIC the machine has, with no names in it. The
+# builder's netplan names its MAC, and the one cloud-init would render from Proxmox's
+# drive renames the NIC to eth0, which fails on a running interface and leaves the
+# boot waiting forever for an "eth0" that never appears (docs/lessons.md). dc01's DHCP
+# reservation, keyed on the MAC, decides the address and name anyway.
 rm -f /etc/netplan/*.yaml
+cat > /etc/netplan/01-lab-dhcp.yaml <<'EOF'
+# Written by lab-generalize (golden image): DHCP on any wired NIC.
+network:
+  version: 2
+  ethernets:
+    wired:
+      match:
+        name: "en*"
+      dhcp4: true
+EOF
+chmod 600 /etc/netplan/01-lab-dhcp.yaml
+# ...and cloud-init leaves networking alone (it still sets the hostname and keys)
+echo 'network: {config: disabled}' > /etc/cloud/cloud.cfg.d/99-lab-network.cfg
 # Host keys: cloud-init creates new ones on each clone's first boot.
 rm -f /etc/ssh/ssh_host_*
 # Machine identity: an empty machine-id is regenerated on first boot (and with it the

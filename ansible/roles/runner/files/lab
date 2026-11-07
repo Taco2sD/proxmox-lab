@@ -520,8 +520,11 @@ def doctor():
         check(f"{host.split('_')[0]}: {units}", ok, out.replace("\n", " "))
     check("reconciler not paused", not L.PAUSED.exists(), str(L.PAUSED) if L.PAUSED.exists() else "")
     state = L.read_json(L.RECONCILE) or {}
-    age = time.time() - state.get("full_run", 0)
-    check("reconciler", age < 2 * FULL_RUN_EVERY, f"last full run {int(age // 60)} min ago")
+    if state.get("full_run"):
+        age = time.time() - state["full_run"]
+        check("reconciler", age < 2 * FULL_RUN_EVERY, f"last full run {int(age // 60)} min ago")
+    else:
+        check("reconciler", False, "has never completed a full run")
     if state.get("pending_destroys"):
         check("pending destroys", False, "awaiting approval: " + ", ".join(state["pending_destroys"]))
     return 1 if bad else 0

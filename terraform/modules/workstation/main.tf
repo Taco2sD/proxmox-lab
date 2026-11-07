@@ -104,16 +104,13 @@ resource "proxmox_virtual_environment_vm" "this" {
   }
   boot_order = ["scsi0"]
 
-  # Proxmox's cloud-init drive: hostname (from name), DHCP, and the admin's SSH key.
-  # Everything else is configuration management's job (ansible-pull), not the image's.
+  # Proxmox's cloud-init drive: the hostname (from name) and the admin's SSH key.
+  # Networking isn't here: the image does DHCP on any wired NIC by itself
+  # (lab-generalize), so no interface names are involved. Everything else is
+  # configuration management's job (ansible-pull), not the image's.
   initialization {
     datastore_id = var.settings.pve_datastore
     interface    = "ide2"
-    ip_config {
-      ipv4 {
-        address = "dhcp"
-      }
-    }
     user_account {
       username = "labadmin"
       keys     = var.ssh_keys
