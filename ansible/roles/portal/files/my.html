@@ -231,6 +231,7 @@ async function power(m, action) {
 // ---------------------------------------------------------------- actions
 async function openConsole(host, mode) {
   const w = window.open("", "_blank");
+  await endGuacamoleSession();
   const r = await api("/api/me/connect", { admin: true, body: { host, mode } });
   if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the console."); }
   // Each click opens a fresh Guacamole login; within a tab, Guacamole's Reconnect works too

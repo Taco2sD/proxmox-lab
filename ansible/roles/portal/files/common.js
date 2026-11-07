@@ -86,6 +86,17 @@ const specs = size => size ? `${size.cores} vCPU · ${+(size.memory_mb / 1024).t
 // Loading Guacamole's app for the first time takes a few seconds, so pages that offer a
 // Desktop button load it once in a hidden frame beforehand: the click then only has to
 // connect (portal.py: console_ticket).
+// Guacamole (same origin) keeps its session token in localStorage and sends it with
+// every login. With a session open, it reuses that session and ignores the new login a
+// Connect / Desktop / Terminal click carries: the old session's connections (another
+// machine, an expired login) are all it shows, "The requested connection does not
+// exist". So sign that session out properly and forget it before each click's login.
+async function endGuacamoleSession() {
+  let old = null;
+  try { old = JSON.parse(localStorage.getItem("GUAC_AUTH_TOKEN")); } catch {}
+  if (old) await fetch("/guacamole/api/tokens/" + encodeURIComponent(old), { method: "DELETE" }).catch(() => {});
+  try { localStorage.removeItem("GUAC_AUTH_TOKEN"); } catch {}
+}
 function warmGuacamole() {
   if (warmGuacamole.done) return;
   warmGuacamole.done = true;

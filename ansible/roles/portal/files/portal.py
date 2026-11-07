@@ -139,20 +139,13 @@ def console_ticket(r):
             "password": CONSOLE_SECRET.read_text().strip()}
 
 
-def guacamole_login(r, with_password=True, console=None):
-    """A Guacamole JSON-auth login for one connection to the owner's machine, valid for
-    60 seconds: SSH (the terminal), or with `console` (console_ticket()), the machine's
-    own screen over VNC: the Ubuntu login, where the owner signs in with their AD
-    password, then their GNOME desktop (roles/desktop). Visitors' passwords are on
-    mgmt01 and go into the terminal; staff members' aren't stored anywhere, so the
-    terminal or the login screen asks (with_password=False). Returns (name, data).
-    Same steps as Guacamole's reference encrypt-json.sh:
-    HMAC-SHA256 the JSON with the key, prepend the signature, AES-128-CBC with a zero
-    IV (PKCS#7 padding), base64."""
-    from cryptography.hazmat.primitives import padding
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
-    key = bytes.fromhex(JSON_KEY.read_text().strip())
+def guacamole_connection(r, with_password=True, console=None):
+    """One Guacamole connection to the owner's machine: SSH (the terminal), or with
+    `console` (console_ticket()), the machine's own screen over VNC: the Ubuntu login,
+    where the owner signs in with their AD password, then their GNOME desktop
+    (roles/desktop). Visitors' passwords are on mgmt01 and go into the terminal; staff
+    members' aren't stored anywhere, so the terminal or the login screen asks
+    (with_password=False). Returns (name, connection)."""
     if console:
         name, protocol, params = f"{r['host']} desktop", "vnc", dict(console)
         # guacd 1.6.0 drops the connection when the guest changes resolution if it
@@ -165,10 +158,30 @@ def guacamole_login(r, with_password=True, console=None):
                   "color-scheme": "gray-black", "font-size": "11"}
         if with_password:
             params["password"] = (L.PASSWORDS / r["owner"]).read_text()
+    return name, {"protocol": protocol, "parameters": params}
+
+
+def guacamole_login(r, with_password=True, console=None, others=None):
+    """A Guacamole JSON-auth login that opens one connection (guacamole_connection()),
+    carrying `others` too: the owner's other connections. Guacamole keeps one session
+    per browser, and each click's login replaces it (common.js: endGuacamoleSession);
+    with all of them in every login, a tab opened earlier can still Reconnect.
+    Returns (name, data). Same steps as Guacamole's reference encrypt-json.sh:
+    HMAC-SHA256 the JSON with the key, prepend the signature, AES-128-CBC with a zero
+    IV (PKCS#7 padding), base64."""
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    key = bytes.fromhex(JSON_KEY.read_text().strip())
+    name, connection = guacamole_connection(r, with_password, console)
     payload = json.dumps({
         "username": r["owner"],
-        "expires": int((time.time() + 60) * 1000),                       # milliseconds
-        "connections": {name: {"protocol": protocol, "parameters": params}},
+        # Single use: Guacamole refuses the same login twice, so a copied link can't be
+        # replayed. Valid for a working day: Guacamole drops a connection from the session
+        # once its login expires, which would break Reconnect (it was 60 seconds).
+        "expires": int((time.time() + 8 * 3600) * 1000),                 # milliseconds
+        "singleUse": True,
+        "connections": {**(others or {}), name: connection},
     }).encode()
     signed = hmac.new(key, payload, hashlib.sha256).digest() + payload
     padder = padding.PKCS7(128).padder()
@@ -629,10 +642,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(400, {"error": "This workstation has no desktop: open its terminal."})
             try:
                 console = console_ticket(r) if desktop else None
+                others = dict(guacamole_connection(g, with_password=False) for h, g in L.guests().items()
+                              if h in mine and g.get("state") == "ready")
+                others.update(guacamole_connection(g, with_password=False, console=console_ticket(g))
+                              for h, g in L.guests().items()
+                              if h in mine and g.get("state") == "ready" and mine[h]["kind"] == "desktop")
             except Exception as e:                                     # noqa: BLE001
-                print(f"console ticket for {host} failed: {e!r}", flush=True)
+                print(f"console for {host} failed: {e!r}", flush=True)
                 return self.send(503, {"error": "Couldn't open the desktop. Try again in a moment."})
-            return self.send(200, {"url": guacamole_url(*guacamole_login(r, with_password=False, console=console))})
+            return self.send(200, {"url": guacamole_url(*guacamole_login(r, with_password=False, console=console,
+                                                                         others=others))})
         return self.send(404, {"error": "not found"})
 
     def staff_cookie(self, user):

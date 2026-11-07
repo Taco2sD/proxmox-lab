@@ -261,7 +261,8 @@ $("#add-form").addEventListener("submit", async e => {
 
 // ---------------------------------------------------------------- Connect
 // The tab opens on the click itself (pop-up blockers allow that), then gets its address:
-// a 60-second, encrypted Guacamole login that opens an SSH session to the machine.
+// an encrypted, single-use Guacamole login that opens an SSH session to the machine
+// (common.js: endGuacamoleSession first).
 async function connect(token) {
   const tab = window.open("about:blank", "_blank");
   await endGuacamoleSession();
@@ -269,17 +270,6 @@ async function connect(token) {
   if (r.ok && tab) { tab.location = r.data.url; return; }
   if (tab) tab.close();
   toast(r.data.error || "Couldn't open the terminal");
-}
-
-// Guacamole (same origin) keeps its session token in localStorage and sends it with
-// every login. With a session open, it reuses that session and ignores our new login,
-// whose connection list has expired by then: "No recent connections", empty "All
-// connections". So sign that session out properly and forget it before each Connect.
-async function endGuacamoleSession() {
-  let old = null;
-  try { old = JSON.parse(localStorage.getItem("GUAC_AUTH_TOKEN")); } catch {}
-  if (old) await fetch("/guacamole/api/tokens/" + encodeURIComponent(old), { method: "DELETE" }).catch(() => {});
-  try { localStorage.removeItem("GUAC_AUTH_TOKEN"); } catch {}
 }
 
 // ---------------------------------------------------------------- Details

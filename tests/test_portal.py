@@ -77,7 +77,8 @@ class GuacamoleLogin(unittest.TestCase):
             plain = u.update(d.update(base64.b64decode(data)) + d.finalize()) + u.finalize()
             sig, payload = plain[:32], plain[32:]
             self.assertEqual(sig, hmac.new(key, payload, hashlib.sha256).digest())
-            return json.loads(payload)["connections"][name]
+            open_login.all = json.loads(payload)
+            return open_login.all["connections"][name]
 
         ssh = open_login()
         self.assertEqual((ssh["protocol"], ssh["parameters"]["hostname"], ssh["parameters"]["password"]),
@@ -88,6 +89,13 @@ class GuacamoleLogin(unittest.TestCase):
                          ("vnc", "5900", "t1ck3t"))
         # guacd 1.6.0 drops the connection when the guest changes resolution if it negotiates size
         self.assertEqual(vnc["parameters"]["disable-display-resize"], "true")
+        # single use (no replaying a copied link), and the owner's other connections ride
+        # along so a tab opened earlier can still Reconnect once a later click replaced the session
+        open_login(others=dict([portal.guacamole_connection({"owner": "gus", "host": "ws-gus", "ip": "10.10.10.31"},
+                                                            with_password=False)]),
+                   with_password=False, console={"hostname": "10.10.10.10", "port": "6131", "password": "s3cr3t"})
+        self.assertTrue(open_login.all["singleUse"])
+        self.assertEqual(sorted(open_login.all["connections"]), ["ws-gus", "ws-gus desktop"])
 
 
 if __name__ == "__main__":
