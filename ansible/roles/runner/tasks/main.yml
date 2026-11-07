@@ -60,6 +60,12 @@
     mode: "0644"
   notify: Apply tmpfiles
 
+- name: Library directory
+  ansible.builtin.file:
+    path: /usr/local/lib/lab
+    state: directory
+    mode: "0755"
+
 - name: The library and the command
   ansible.builtin.copy:
     src: "{{ item.src }}"
