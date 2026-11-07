@@ -71,7 +71,11 @@ class Records(unittest.TestCase):
         self.assertIn("ws-ann", want)
         self.assertNotIn("ws-bob", want)
         self.assertNotIn("ws-cat", want)
-        self.assertIn("ws03", want)                           # the fleet is always there
+        # The fleet is always there, whatever it holds right now: tests must never depend
+        # on which machines inventory/workstations/ has (deleting one would fail CI, and
+        # the deletion could then never be released)
+        for host in L.fleet(REPO):
+            self.assertIn(host, want)
 
     def test_phases_are_recorded_once(self):
         L.write_json(L.guest_path("ws-ann"), {"host": "ws-ann", "phases": {}})
