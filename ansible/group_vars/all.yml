@@ -73,7 +73,7 @@ staff_limits: {desktop: 1, headless: 4}
 # Staff machines nobody has had a session on for this long are hibernated (suspended
 # to disk: they resume exactly where they were). Workstations report sessions every
 # five minutes (roles/base: lab-activity).
-idle_hibernate_minutes: 60
+idle_hibernate_minutes: 2880   # 48 hours
 
 # The golden images, one per kind of workstation (catalog/<role>.yml: kind), so every
 # clone starts with everything it needs and first boot only enrolls and checks: deploy

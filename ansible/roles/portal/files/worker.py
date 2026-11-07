@@ -208,7 +208,7 @@ def hibernate_idle():
         started = observed.get("time", 0) - vm.get("uptime", 0)
         last = max(activity.get(r["ip"], 0), r.get("phases", {}).get("ready", 0), r.get("resumed", 0), started)
         if time.time() - last > limit:
-            power(host, "hibernate", f"idle for {cfg['idle_hibernate_minutes']} minutes")
+            power(host, "hibernate", f"idle for {cfg['idle_hibernate_minutes'] / 60:g} hours")
 
 
 def take_signups():

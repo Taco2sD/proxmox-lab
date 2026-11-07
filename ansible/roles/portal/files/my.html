@@ -241,7 +241,7 @@ async function openConsole(host, mode) {
 function newWorkstation() {
   const mine = state.person?.role, counts = kindCounts();
   $("#new-count").textContent = `One desktop each, and up to ${CONFIG.limits.headless} headless boxes. `
-    + `Idle machines hibernate after ${CONFIG.idle_minutes} minutes without a connection.`;
+    + `Idle machines hibernate after ${CONFIG.idle_minutes % 60 ? CONFIG.idle_minutes + " minutes" : CONFIG.idle_minutes / 60 + " hours"} without a connection.`;
   const groups = Object.keys(CONFIG.limits).map(kind => {
     const full = counts[kind] >= CONFIG.limits[kind];
     const roles = Object.entries(CONFIG.roles).filter(([, r]) => r.kind === kind);
