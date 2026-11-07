@@ -1,0 +1,35 @@
+# Prometheus's node_exporter: every lab machine publishes its own health at
+# http://<machine>:9100/metrics, and Prometheus on mgmt01 (roles/monitoring) scrapes it
+# every 15 seconds. Used by ansible/site.yml (dc01, pve01, mgmt01) and by ansible/local.yml
+# (every workstation, through ansible-pull), so a new machine is monitored as soon as its
+# first configuration run finishes, and mgmt01 starts scraping it once it is running
+# (roles/monitoring: lab-metrics finds it).
+#
+# Ubuntu's and Debian's package, with what it brings along: the apt collector (a timer
+# that counts pending updates, security ones separately: apt_upgrades_pending) and a
+# textfile directory (/var/lib/prometheus/node-exporter) for any metrics a machine's own
+# scripts want to publish.
+
+- name: Install node_exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+
+# Off by default: systemd's units, so a failed service anywhere (samba-ad-dc, nginx,
+# ansible-pull) shows up as node_systemd_unit_state{state="failed"} and alerts
+# (roles/monitoring: alerts.yml). Timers too: their last run tells whether the
+# reconciler is still ticking; restart counts catch a service stuck in a restart loop.
+- name: Collect systemd units and timers
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus-node-exporter
+    content: |
+      # Managed by Ansible (roles/node_exporter)
+      ARGS="--collector.systemd --collector.systemd.enable-start-time-metrics --collector.systemd.enable-restarts-metrics"
+    mode: "0644"
+  notify: Restart node_exporter
+
+- name: Keep node_exporter running
+  ansible.builtin.systemd_service:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started

@@ -1,0 +1,9 @@
+# /etc/systemd/system/lab-metrics.timer on mgmt01 (roles/monitoring)
+[Unit]
+Description=Refresh workstation targets and lab metrics every 30 seconds
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+[Install]
+WantedBy=timers.target

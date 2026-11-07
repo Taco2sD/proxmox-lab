@@ -1,0 +1,9 @@
+# /etc/systemd/system/lab-wg-metrics.timer on pve01 (roles/pve_monitoring)
+[Unit]
+Description=WireGuard tunnel metrics every 30 seconds
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+[Install]
+WantedBy=timers.target

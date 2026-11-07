@@ -234,6 +234,8 @@ function render() {
         el("div", { class: "muted small" }, `${plural(machines.length, "machine")} · signed in as ${me}` + (busy ? " · updating live" : ""))),
       el("div", { style: "display:flex;gap:8px" },
         el("a", { href: "/", class: "muted small", style: "align-self:center;margin-right:8px" }, "Portal"),
+        // Grafana's Lab overview (roles/monitoring), in its own tab
+        el("button", { class: "primary", onclick: () => window.open("/grafana/d/lab-overview/lab-overview", "_blank", "noopener") }, "Monitoring"),
         el("button", { class: "ghost", onclick: async () => { await api("/api/admin/logout", { body: {}, admin: true }); showLogin(); } }, "Sign out"))),
     pending.length ? el("div", { class: "notice warn", role: "alert" },
       el("span", {}, `A change on the release branch removes ${list(pending)}. Destroying a VM needs an admin's approval.`),

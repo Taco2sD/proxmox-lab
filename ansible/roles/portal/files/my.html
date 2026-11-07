@@ -208,6 +208,8 @@ function machineCard(m) {
     el("div", { class: "foot" },
       m.host && m.state !== "removing" && !m.power_action ? el("button", { class: "ghost", onclick: () => remove(m) }, "Delete") : null,
       up ? powerMenu(m) : null,
+      // This machine on Grafana's Machine dashboard (roles/monitoring), in its own tab
+      up ? el("button", { class: "ghost", onclick: () => window.open(`/grafana/d/lab-machine/machine?var-host=${encodeURIComponent(m.host)}`, "_blank", "noopener") }, "Metrics") : null,
       el("span", { class: "spacer" }),
       down ? el("button", { class: "primary", onclick: () => power(m, "start") }, m.power === "hibernated" ? "Wake up" : "Start") : null,
       up ? el("button", { class: role.kind === "desktop" ? "ghost" : "primary", onclick: () => openConsole(m.host, "terminal") }, "Terminal") : null,

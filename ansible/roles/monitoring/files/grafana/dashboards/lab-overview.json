@@ -1,0 +1,2952 @@
+{
+ "uid": "lab-overview",
+ "title": "Lab overview",
+ "description": "The whole lab at a glance: alerts, service checks, the hypervisor, every workstation, the servers and the automation. Dashboards live in git (roles/monitoring/files/grafana/dashboards).",
+ "tags": [
+  "lab"
+ ],
+ "timezone": "browser",
+ "editable": false,
+ "graphTooltip": 1,
+ "refresh": "30s",
+ "schemaVersion": 41,
+ "version": 1,
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "timepicker": {
+  "refresh_intervals": [
+   "15s",
+   "30s",
+   "1m",
+   "5m",
+   "15m"
+  ]
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "workstation",
+    "label": "Workstation",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "prometheus"
+    },
+    "hide": 2,
+    "query": {
+     "query": "query_result(max by (host) (up{job=\"workstations\"}))",
+     "refId": "vars",
+     "qryType": 3
+    },
+    "definition": "query_result(max by (host) (up{job=\"workstations\"}))",
+    "regex": "/host=\"([^\"]+)\"/",
+    "refresh": 2,
+    "sort": 1,
+    "multi": true,
+    "includeAll": true,
+    "current": {
+     "selected": true,
+     "text": [
+      "All"
+     ],
+     "value": [
+      "$__all"
+     ]
+    }
+   }
+  ]
+ },
+ "annotations": {
+  "list": []
+ },
+ "links": [
+  {
+   "title": "Portal admin",
+   "type": "link",
+   "url": "/admin",
+   "icon": "external link",
+   "targetBlank": false
+  },
+  {
+   "title": "Prometheus alerts",
+   "type": "link",
+   "url": "/prometheus/alerts",
+   "icon": "bolt",
+   "targetBlank": true
+  },
+  {
+   "title": "Prometheus targets",
+   "type": "link",
+   "url": "/prometheus/targets",
+   "icon": "info",
+   "targetBlank": true
+  },
+  {
+   "title": "Machine details",
+   "type": "dashboards",
+   "tags": [
+    "lab"
+   ],
+   "asDropdown": true,
+   "includeVars": false
+  }
+ ],
+ "panels": [
+  {
+   "id": 1,
+   "type": "stat",
+   "title": "Firing alerts",
+   "description": "Alert rules (roles/monitoring/files/alerts.yml) that are firing now. The table below says which.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     },
+     "links": [
+      {
+       "title": "Prometheus alerts",
+       "url": "/prometheus/alerts",
+       "targetBlank": true
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Workstations",
+   "description": "Every workstation the lab keeps, by power state. Hibernated machines are suspended to disk and resume exactly where they were; they're off Prometheus's target list until then.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 3,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "count by (power) (lab_workstation_info)",
+     "refId": "A",
+     "legendFormat": "{{power}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "running"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "green"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "hibernated"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "blue"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "stopped"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 3,
+   "type": "gauge",
+   "title": "Memory budget",
+   "description": "Memory promised to portal workstations (running or not) against guest_memory_mb. The portal refuses new machines that don't fit (lablib.admission).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_memory_committed_bytes / lab_guest_memory_budget_bytes",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.75
+       },
+       {
+        "color": "red",
+        "value": 0.9
+       }
+      ]
+     },
+     "decimals": 0,
+     "min": 0,
+     "max": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showThresholdMarkers": true,
+    "showThresholdLabels": false,
+    "minVizHeight": 75,
+    "minVizWidth": 75
+   }
+  },
+  {
+   "id": 4,
+   "type": "gauge",
+   "title": "pve01 CPU",
+   "description": "The hypervisor's CPU use, all cores.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 9,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "1 - avg(rate(node_cpu_seconds_total{host=\"pve01\",mode=\"idle\"}[$__rate_interval]))",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.75
+       },
+       {
+        "color": "red",
+        "value": 0.9
+       }
+      ]
+     },
+     "decimals": 0,
+     "min": 0,
+     "max": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showThresholdMarkers": true,
+    "showThresholdLabels": false,
+    "minVizHeight": 75,
+    "minVizWidth": 75
+   }
+  },
+  {
+   "id": 5,
+   "type": "gauge",
+   "title": "pve01 memory",
+   "description": "The hypervisor's memory in use (VMs plus Proxmox itself).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "1 - node_memory_MemAvailable_bytes{host=\"pve01\"} / node_memory_MemTotal_bytes{host=\"pve01\"}",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.75
+       },
+       {
+        "color": "red",
+        "value": 0.9
+       }
+      ]
+     },
+     "decimals": 0,
+     "min": 0,
+     "max": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showThresholdMarkers": true,
+    "showThresholdLabels": false,
+    "minVizHeight": 75,
+    "minVizWidth": 75
+   }
+  },
+  {
+   "id": 6,
+   "type": "gauge",
+   "title": "VM storage",
+   "description": "local-lvm, the thin pool every VM disk lives on. Thin: VMs are promised more than there is, so this real use is what counts.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 15,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "pve_disk_usage_bytes{id=~\"storage/.+/local-lvm\"} / pve_disk_size_bytes{id=~\"storage/.+/local-lvm\"}",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.7
+       },
+       {
+        "color": "red",
+        "value": 0.85
+       }
+      ]
+     },
+     "decimals": 0,
+     "min": 0,
+     "max": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showThresholdMarkers": true,
+    "showThresholdLabels": false,
+    "minVizHeight": 75,
+    "minVizWidth": 75
+   }
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Certificates",
+   "description": "Days until the first of the lab's TLS certificates expires. Let's Encrypt renews at 30 days left.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "(min(probe_ssl_earliest_cert_expiry) - time()) / 86400",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "suffix: d",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 14
+       },
+       {
+        "color": "green",
+        "value": 30
+       }
+      ]
+     },
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 8,
+   "type": "stat",
+   "title": "Security fixes",
+   "description": "Pending security updates across every monitored machine (node_exporter's apt collector).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 21,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(apt_upgrades_pending{origin=~\".*-security.*\"}) or vector(0)",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 9,
+   "type": "table",
+   "title": "Firing alerts",
+   "description": "What's wrong right now. Each rule's summary and first steps are on Prometheus's alerts page.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 9,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "ALERTS{alertstate=\"firing\"}",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": false
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Severity"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "critical": {
+            "text": "critical",
+            "color": "red",
+            "index": 0
+           },
+           "warning": {
+            "text": "warning",
+            "color": "orange",
+            "index": 1
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.width",
+        "value": 90
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "filterFieldsByName",
+     "options": {
+      "include": {
+       "names": [
+        "alertname",
+        "severity",
+        "host",
+        "probe",
+        "name",
+        "mountpoint"
+       ]
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "severity": 0,
+       "alertname": 1,
+       "host": 2,
+       "probe": 3,
+       "name": 4,
+       "mountpoint": 5
+      },
+      "renameByName": {
+       "alertname": "Alert",
+       "severity": "Severity",
+       "host": "Machine",
+       "probe": "Service",
+       "name": "Unit",
+       "mountpoint": "Mount"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "type": "state-timeline",
+   "title": "Service checks",
+   "description": "Each service probed from mgmt01 the way a user meets it (blackbox_exporter): HTTPS with a valid certificate, LDAPS, Kerberos, AD DNS, and the public sign-in page on the VPS.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 9,
+    "y": 4,
+    "w": 15,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "probe_success",
+     "refId": "A",
+     "legendFormat": "{{probe}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     },
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "1": {
+         "text": "Up",
+         "color": "green",
+         "index": 0
+        },
+        "0": {
+         "text": "Down",
+         "color": "red",
+         "index": 1
+        }
+       }
+      }
+     ],
+     "custom": {
+      "fillOpacity": 80,
+      "lineWidth": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "showValue": "never",
+    "rowHeight": 0.8,
+    "mergeValues": true,
+    "alignValue": "left",
+    "legend": {
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "single"
+    }
+   }
+  },
+  {
+   "id": 11,
+   "type": "row",
+   "title": "Hypervisor: pve01, as Proxmox sees its VMs",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 12,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 12,
+   "type": "timeseries",
+   "title": "CPU by VM",
+   "description": "Cores each VM is using, stacked; the dashed line is what pve01 has.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 13,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "pve_cpu_usage_ratio * pve_cpu_usage_limit * on (id) group_left (name) pve_guest_info{template=\"0\"}",
+     "refId": "A",
+     "legendFormat": "{{name}}"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "count(node_cpu_seconds_total{host=\"pve01\",mode=\"idle\"})",
+     "refId": "B",
+     "legendFormat": "pve01's cores"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 70,
+      "gradientMode": "none",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "pve01's cores"
+      },
+      "properties": [
+       {
+        "id": "custom.stacking",
+        "value": {
+         "mode": "none",
+         "group": "A"
+        }
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "Memory by VM",
+   "description": "Memory each VM is using, stacked; the dashed line is what pve01 has. Hibernated machines use none.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 13,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "pve_memory_usage_bytes * on (id) group_left (name) pve_guest_info{template=\"0\"}",
+     "refId": "A",
+     "legendFormat": "{{name}}"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_memory_MemTotal_bytes{host=\"pve01\"}",
+     "refId": "B",
+     "legendFormat": "pve01's memory"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 70,
+      "gradientMode": "none",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "pve01's memory"
+      },
+      "properties": [
+       {
+        "id": "custom.stacking",
+        "value": {
+         "mode": "none",
+         "group": "A"
+        }
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 14,
+   "type": "bargauge",
+   "title": "Storage pools",
+   "description": "Proxmox's storage: local-lvm holds VM disks, local holds ISOs and backups.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 21,
+    "w": 6,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "pve_disk_usage_bytes{id=~\"storage/.*\"} / pve_disk_size_bytes * on (id) group_left (storage) pve_storage_info",
+     "refId": "A",
+     "legendFormat": "{{storage}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.7
+       },
+       {
+        "color": "red",
+        "value": 0.85
+       }
+      ]
+     },
+     "min": 0,
+     "max": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "gradient",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "top",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "Disk I/O by VM",
+   "description": "Reads up, writes down (Proxmox's per-VM counters).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 21,
+    "w": 9,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "rate(pve_disk_read_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"} > 0",
+     "refId": "A",
+     "legendFormat": "{{name}} read"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "-rate(pve_disk_written_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"} < 0",
+     "refId": "B",
+     "legendFormat": "{{name}} write"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 16,
+   "type": "timeseries",
+   "title": "Network by VM",
+   "description": "Received up, sent down.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 15,
+    "y": 21,
+    "w": 9,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "rate(pve_network_receive_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"} > 0",
+     "refId": "A",
+     "legendFormat": "{{name}} in"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "-rate(pve_network_transmit_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"} < 0",
+     "refId": "B",
+     "legendFormat": "{{name}} out"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 17,
+   "type": "row",
+   "title": "Workstations",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 28,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 18,
+   "type": "table",
+   "title": "Every workstation",
+   "description": "One row per workstation the lab keeps, from the lab's records and each machine's node_exporter. Hibernated machines show no live numbers. Click a name for its details.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 29,
+    "w": 24,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_workstation_info",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (host) (1 - avg by (host) (rate(node_cpu_seconds_total{job=\"workstations\",mode=\"idle\"}[5m])))",
+     "refId": "B",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (host) (1 - node_memory_MemAvailable_bytes{job=\"workstations\"} / node_memory_MemTotal_bytes{job=\"workstations\"})",
+     "refId": "C",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (host) (1 - node_filesystem_avail_bytes{job=\"workstations\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"workstations\",mountpoint=\"/\"})",
+     "refId": "D",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (host) (time() - lab_workstation_last_configured_timestamp_seconds)",
+     "refId": "E",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (host) (time() - lab_workstation_last_session_timestamp_seconds)",
+     "refId": "F",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (host) (time() - node_boot_time_seconds{job=\"workstations\"})",
+     "refId": "G",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (host) (apt_upgrades_pending{job=\"workstations\"})",
+     "refId": "H",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (host) (node_systemd_unit_state{job=\"workstations\",state=\"failed\"})",
+     "refId": "I",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": false
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "CPU"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percentunit"
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 1
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 0.75
+          },
+          {
+           "color": "red",
+           "value": 0.9
+          }
+         ]
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 150
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Memory"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percentunit"
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 1
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 0.75
+          },
+          {
+           "color": "red",
+           "value": 0.9
+          }
+         ]
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 150
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Disk /"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percentunit"
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 1
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 0.75
+          },
+          {
+           "color": "red",
+           "value": 0.9
+          }
+         ]
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 150
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Up for"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dtdurations"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Configured"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dtdurations"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 3600
+          },
+          {
+           "color": "red",
+           "value": 7200
+          }
+         ]
+        }
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Last used"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dtdurations"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Power"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       },
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "running": {
+            "text": "running",
+            "color": "green",
+            "index": 0
+           },
+           "hibernated": {
+            "text": "hibernated",
+            "color": "blue",
+            "index": 1
+           },
+           "stopped": {
+            "text": "stopped",
+            "color": "#8e8e8e",
+            "index": 2
+           }
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Failed units"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "red",
+           "value": 1
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Machine"
+      },
+      "properties": [
+       {
+        "id": "links",
+        "value": [
+         {
+          "title": "Details for ${__value.raw}",
+          "url": "/grafana/d/lab-machine/machine?var-host=${__value.raw}"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "joinByField",
+     "options": {
+      "byField": "host",
+      "mode": "outer"
+     }
+    },
+    {
+     "id": "filterFieldsByName",
+     "options": {
+      "exclude": {
+       "pattern": "^(Time.*|Value #A|state|__name__.*|job.*|instance.*)$"
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "host": 0,
+       "owner": 1,
+       "role": 2,
+       "kind": 3,
+       "power": 4,
+       "ip": 5,
+       "vmid": 6,
+       "Value #B": 7,
+       "Value #C": 8,
+       "Value #D": 9,
+       "Value #G": 10,
+       "Value #E": 11,
+       "Value #F": 12,
+       "Value #H": 13,
+       "Value #I": 14
+      },
+      "renameByName": {
+       "host": "Machine",
+       "owner": "Owner",
+       "role": "Role",
+       "kind": "Kind",
+       "power": "Power",
+       "ip": "Address",
+       "vmid": "VM",
+       "Value #B": "CPU",
+       "Value #C": "Memory",
+       "Value #D": "Disk /",
+       "Value #G": "Up for",
+       "Value #E": "Configured",
+       "Value #F": "Last used",
+       "Value #H": "Updates",
+       "Value #I": "Failed units"
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "Machine"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": 19,
+   "type": "timeseries",
+   "title": "$workstation",
+   "description": "One panel per running workstation: they appear and disappear with the machines (Prometheus's target list, rewritten by lab-metrics every 30 seconds).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 37,
+    "w": 6,
+    "h": 6
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "1 - avg(rate(node_cpu_seconds_total{host=\"$workstation\",mode=\"idle\"}[$__rate_interval]))",
+     "refId": "A",
+     "legendFormat": "CPU"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "1 - node_memory_MemAvailable_bytes{host=\"$workstation\"} / node_memory_MemTotal_bytes{host=\"$workstation\"}",
+     "refId": "B",
+     "legendFormat": "Memory"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 20,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     },
+     "min": 0,
+     "max": 1,
+     "links": [
+      {
+       "title": "Details for $workstation",
+       "url": "/grafana/d/lab-machine/machine?var-host=$workstation"
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "repeat": "workstation",
+   "repeatDirection": "h",
+   "maxPerRow": 4
+  },
+  {
+   "id": 20,
+   "type": "row",
+   "title": "Servers and services",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 43,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 21,
+   "type": "state-timeline",
+   "title": "Key services",
+   "description": "The services the lab depends on, as systemd reports them on each server (node_exporter's systemd collector). Probes above check the same services from the outside.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 44,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_systemd_unit_state{job=\"servers\",state=\"active\",name=~\"samba-ad-dc.service|dnsmasq.service|nginx.service|docker.service|lab-portal.service|lab-portal-worker.service|pveproxy.service|pvedaemon.service|pve-cluster.service|wg-quick@lab.service|lab-console.socket|lab-portal-relay.socket|chrony.service\"} unless on (host, name) node_systemd_unit_state{host=\"mgmt01\",name=\"chrony.service\"}",
+     "refId": "A",
+     "legendFormat": "{{host}} \u00b7 {{name}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     },
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "1": {
+         "text": "Active",
+         "color": "green",
+         "index": 0
+        },
+        "0": {
+         "text": "Not active",
+         "color": "red",
+         "index": 1
+        }
+       }
+      }
+     ],
+     "custom": {
+      "fillOpacity": 80,
+      "lineWidth": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "showValue": "never",
+    "rowHeight": 0.75,
+    "mergeValues": true,
+    "alignValue": "left",
+    "legend": {
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "single"
+    }
+   }
+  },
+  {
+   "id": 22,
+   "type": "timeseries",
+   "title": "Clock offset",
+   "description": "How far each clock is from its time source. Kerberos (AD sign-ins) refuses 5 minutes; the alert fires at half a second. VMs freeze with their host and wake up behind (chrony: makestep 1 -1).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 44,
+    "w": 12,
+    "h": 9
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_timex_offset_seconds",
+     "refId": "A",
+     "legendFormat": "{{host}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 0.5
+       }
+      ]
+     },
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": -1,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMax": 1,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 23,
+   "type": "stat",
+   "title": "Tunnel: last handshake",
+   "description": "The WireGuard tunnel from pve01 to the VPS: the internet's only way in. Handshakes renew every two minutes while the VPS answers.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 53,
+    "w": 4,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "time() - max(lab_wireguard_latest_handshake_seconds)",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 180
+       },
+       {
+        "color": "red",
+        "value": 300
+       }
+      ]
+     },
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 24,
+   "type": "timeseries",
+   "title": "Tunnel traffic",
+   "description": "Bytes through the tunnel: visitors using the portal from the internet.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 4,
+    "y": 53,
+    "w": 8,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "rate(lab_wireguard_transfer_bytes[$__rate_interval])",
+     "refId": "A",
+     "legendFormat": "{{direction}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 25,
+   "type": "bargauge",
+   "title": "Root filesystem",
+   "description": "/ on every monitored machine.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 53,
+    "w": 6,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (host) (1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})",
+     "refId": "A",
+     "legendFormat": "{{host}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.75
+       },
+       {
+        "color": "red",
+        "value": 0.9
+       }
+      ]
+     },
+     "min": 0,
+     "max": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "gradient",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "left",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 26,
+   "type": "bargauge",
+   "title": "Pending updates",
+   "description": "Package updates waiting on each machine, security and others (apt collector, every 15 minutes).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 53,
+    "w": 6,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (host) (apt_upgrades_pending)",
+     "refId": "A",
+     "legendFormat": "{{host}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       },
+       {
+        "color": "red",
+        "value": 50
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "basic",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "left",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 27,
+   "type": "row",
+   "title": "Lab automation",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 60,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 28,
+   "type": "stat",
+   "title": "Reconciler last ran",
+   "description": "lab-reconcile.timer runs every minute: it applies the release branch whenever it moves.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 61,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "time() - node_systemd_timer_last_trigger_seconds{name=\"lab-reconcile.timer\"}",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 180
+       },
+       {
+        "color": "red",
+        "value": 300
+       }
+      ]
+     },
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 29,
+   "type": "stat",
+   "title": "Last full deploy",
+   "description": "When the reconciler last ran the whole server configuration (site.yml).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 4,
+    "y": 61,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "time() - lab_reconcile_last_full_run_timestamp_seconds",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 30,
+   "type": "stat",
+   "title": "Release",
+   "description": "Whether the latest commit on the release branch was applied.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 61,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_reconcile_failed",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "Applied",
+         "color": "green",
+         "index": 0
+        },
+        "1": {
+         "text": "Failed",
+         "color": "red",
+         "index": 1
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 31,
+   "type": "stat",
+   "title": "Reconciler",
+   "description": "Paused while /var/lib/lab/reconcile.paused exists (docs/operations.md).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 11,
+    "y": 61,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_reconcile_paused",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "Running",
+         "color": "green",
+         "index": 0
+        },
+        "1": {
+         "text": "Paused",
+         "color": "orange",
+         "index": 1
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 32,
+   "type": "stat",
+   "title": "Operations, last 24 h",
+   "description": "Builds, deletes, image builds and deploys (`lab`), by outcome. The admin page's Activity has each one.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 14,
+    "y": 61,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_operations_24h",
+     "refId": "A",
+     "legendFormat": "{{state}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "failed"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "red"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "done"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "green"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 33,
+   "type": "stat",
+   "title": "Golden images",
+   "description": "Age of each golden image (lab image build). New machines are clones of these.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 20,
+    "y": 61,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "time() - lab_image_built_timestamp_seconds",
+     "refId": "A",
+     "legendFormat": "{{kind}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 34,
+   "type": "timeseries",
+   "title": "Workstations over time",
+   "description": "How many machines the lab keeps, and how many are awake.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 65,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "count by (power) (lab_workstation_info)",
+     "refId": "A",
+     "legendFormat": "{{power}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 70,
+      "gradientMode": "none",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "running"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "green"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "hibernated"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "blue"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "stopped"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 35,
+   "type": "timeseries",
+   "title": "Memory budget over time",
+   "description": "Admission control: new workstations must fit under the budget.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 65,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_memory_committed_bytes",
+     "refId": "A",
+     "legendFormat": "promised to workstations"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_memory_budget_bytes",
+     "refId": "B",
+     "legendFormat": "budget (guest_memory_mb)"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 25,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "budget (guest_memory_mb)"
+      },
+      "properties": [
+       {
+        "id": "custom.stacking",
+        "value": {
+         "mode": "none",
+         "group": "A"
+        }
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  }
+ ]
+}

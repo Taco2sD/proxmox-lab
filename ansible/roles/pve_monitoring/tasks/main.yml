@@ -1,0 +1,84 @@
+# pve01: what Prometheus (mgmt01, roles/monitoring) needs from the hypervisor.
+#
+# 1. A read-only Proxmox API token for prometheus-pve-exporter, which turns the Proxmox
+#    API into metrics: every VM's CPU, memory, disk and network as Proxmox sees it,
+#    including machines that are stopped or hibernated (no node_exporter answers for
+#    those), plus storage pools. User prometheus@pve, role PVEAuditor (look, never
+#    touch), token "monitoring" with privilege separation: the token's own ACL is
+#    PVEAuditor too, so it can never do more than its user.
+#    The secret is made once here (/etc/lab/monitoring.env, root only) and handed to
+#    mgmt01 (/etc/lab-monitoring/pve.env, root only, the exporter's env_file).
+# 2. The WireGuard tunnel's last handshake as a metric (lab-wg-metrics), because the
+#    tunnel is the only way in from the internet (roles/portal_relay): if the VPS stops
+#    answering, the dashboards show the tunnel going quiet before anyone reports it.
+#
+# Runs after the mgmt01 play in ansible/site.yml: it writes into mgmt01's monitoring
+# directory, which roles/monitoring creates.
+
+- name: Read-only API token for Prometheus (made once)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -e
+      umask 077
+      mkdir -p /etc/lab
+      test -s /etc/lab/monitoring.env && exit 0
+      pveum user list --output-format json | grep -q '"prometheus@pve"' ||
+        pveum user add prometheus@pve --comment "Prometheus on mgmt01 (roles/pve_monitoring): read-only"
+      pveum acl modify / --users prometheus@pve --roles PVEAuditor
+      # A token's secret is shown once, when it is made: start over if the file is gone
+      pveum user token remove prometheus@pve monitoring >/dev/null 2>&1 || true
+      secret=$(pveum user token add prometheus@pve monitoring --privsep 1 \
+                 --comment "prometheus-pve-exporter on mgmt01" --output-format json |
+               python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])')
+      pveum acl modify / --tokens 'prometheus@pve!monitoring' --roles PVEAuditor
+      printf 'PVE_USER=prometheus@pve\nPVE_TOKEN_NAME=monitoring\nPVE_TOKEN_VALUE=%s\nPVE_VERIFY_SSL=true\n' \
+        "$secret" > /etc/lab/monitoring.env
+      echo created
+  register: monitoring_token
+  changed_when: "'created' in monitoring_token.stdout"
+
+- name: Read the token
+  ansible.builtin.slurp:
+    src: /etc/lab/monitoring.env
+  register: monitoring_env
+  no_log: true
+
+- name: Hand the token to the exporter (mgmt01)
+  ansible.builtin.copy:
+    content: "{{ monitoring_env.content | b64decode }}"
+    dest: /etc/lab-monitoring/pve.env
+    mode: "0600"
+  delegate_to: mgmt01
+  become: false
+  no_log: true
+  register: pve_env
+
+# Docker reads an env_file only when it creates the container
+- name: Exporter picks up a new token
+  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml up -d --force-recreate pve-exporter
+  delegate_to: mgmt01
+  become: false
+  when: pve_env.changed
+  changed_when: true
+
+- name: Tunnel metrics script
+  ansible.builtin.copy:
+    src: lab-wg-metrics
+    dest: /usr/local/libexec/lab-wg-metrics
+    mode: "0755"
+
+- name: Tunnel metrics units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-wg-metrics.service, lab-wg-metrics.timer]
+  register: wg_units
+
+- name: Tunnel metrics every 30 seconds
+  ansible.builtin.systemd_service:
+    name: lab-wg-metrics.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ wg_units.changed }}"

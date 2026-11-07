@@ -1,0 +1,7 @@
+# /etc/systemd/system/lab-metrics.service on mgmt01 (roles/monitoring): see
+# /usr/local/libexec/lab-metrics
+[Unit]
+Description=Workstation targets and lab metrics for Prometheus
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/lab-metrics

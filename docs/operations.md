@@ -93,6 +93,8 @@ None are in git. Each lives only where it's used, root-only unless noted.
 | OpenTofu state | mgmt01 `/var/lib/lab/tofu/` | Can contain secrets |
 | WireGuard keys | pve01 `/etc/wireguard/lab.conf`, VPS | The tunnel |
 | Sign-in gate account (`demo`) | VPS `/etc/oauth2-proxy/users.htpasswd` (bcrypt) | The public sign-in page |
+| Proxmox read-only token (`prometheus@pve!monitoring`) | pve01 `/etc/lab/monitoring.env`; mgmt01 `/etc/lab-monitoring/pve.env` | pve-exporter (docs/monitoring.md) |
+| Grafana's admin password | mgmt01 `/etc/lab-monitoring/grafana.env` | Grafana's `admin` (viewers need none) |
 
 `lab doctor` checks that mgmt01's are present.
 

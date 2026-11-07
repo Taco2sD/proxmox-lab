@@ -1,0 +1,231 @@
+# /etc/lab-monitoring/prometheus/alerts.yml on mgmt01 (roles/monitoring): the alert rules
+# Prometheus evaluates every 15 seconds. Firing alerts show on the Lab overview
+# dashboard (Grafana reads Prometheus's ALERTS series) and on
+# https://lab.radicallydecent.com/prometheus/alerts. No Alertmanager yet: in production,
+# it would route these to the on-call channel, group them and handle silences.
+#
+# Rules of thumb used here:
+#   - alert on what someone would have to act on, not on every wobble: "for:" makes a
+#     condition last before it fires
+#   - severity: critical = a service people use is broken now; warning = it will be
+#     soon, or something needs a look today
+#   - the summary says what and where, the description what to check first
+groups:
+  - name: availability
+    rules:
+      - alert: TargetDown
+        # A workstation that's meant to be off isn't a target (lab-metrics), so this is
+        # a machine that should be answering and isn't: crashed, hung, or its
+        # node_exporter stopped.
+        expr: up{job=~"servers|workstations|proxmox"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.host }} isn't answering Prometheus ({{ $labels.job }})"
+          description: >-
+            No metrics for 3 minutes. Check the VM's console in Proxmox, then `systemctl status prometheus-node-exporter`
+            on the machine.
+
+      - alert: ServiceProbeFailed
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.probe }} is failing its check"
+          description: >-
+            blackbox can't reach {{ $labels.instance }} ({{ $labels.module }}). Try it by hand:
+            https://lab.radicallydecent.com/prometheus/ → probe_success, or curl from mgmt01.
+
+      - alert: SystemdUnitsFailed
+        # One alert per machine, not per unit: a template unit that fails per connection
+        # (socket activation) would otherwise raise hundreds at once and bury everything
+        # else. The Machine dashboard lists the units.
+        expr: count by (host) (node_systemd_unit_state{state="failed"} == 1)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} systemd unit(s) failed on {{ $labels.host }}"
+          description: >-
+            `systemctl --failed` on {{ $labels.host }}, then `journalctl -u <unit> -b`. Once fixed, `systemctl
+            reset-failed` clears units that won't run again.
+
+      - alert: ServiceRestartLoop
+        expr: increase(node_systemd_service_restart_total[15m]) > 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.name }} on {{ $labels.host }} keeps restarting"
+          description: "{{ $value | humanize }} restarts in 15 minutes: systemd is hiding a crash loop. Read its journal."
+
+  - name: capacity
+    rules:
+      - alert: DiskAlmostFull
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|efivarfs"}
+            / node_filesystem_size_bytes < 0.10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.mountpoint }} on {{ $labels.host }} is over 90% full"
+          description: "`du -xh --max-depth=2 {{ $labels.mountpoint }} | sort -h | tail` on {{ $labels.host }}."
+
+      - alert: DiskFillingUp
+        # The trend of the last 6 hours, carried forward: it runs out within a day
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay|efivarfs"}[6h], 86400) < 0
+            and node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.40
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.mountpoint }} on {{ $labels.host }} will be full within a day at this rate"
+          description: "Something is writing steadily: logs, a runaway cache, Prometheus's own data."
+
+      - alert: MemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.08
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} has under 8% of its memory available"
+          description: "`ps aux --sort=-rss | head` on {{ $labels.host }}; on pve01, check the VMs' memory on the Lab overview."
+
+      - alert: StoragePoolAlmostFull
+        # Proxmox's storage (local-lvm is thin-provisioned: VMs can be promised more than
+        # there is, so the pool's real use is what counts)
+        expr: pve_disk_usage_bytes{id=~"storage/.*"} / pve_disk_size_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Proxmox storage {{ $labels.id }} is over 85% used"
+          description: >-
+            Thin pools stop every VM writing to them when they fill. Remove old images or snapshots, or grow the pool.
+
+      - alert: GuestMemoryBudgetNearlyUsed
+        # The portal's admission control (lablib.admission): new machines are refused
+        # once guest_memory_mb is used up
+        expr: lab_guest_memory_committed_bytes / lab_guest_memory_budget_bytes > 0.90
+        labels:
+          severity: warning
+        annotations:
+          summary: "The lab's workstation memory budget is {{ $value | humanizePercentage }} used"
+          description: "New workstation requests will soon be refused. Delete unused machines on the admin page."
+
+  - name: correctness
+    rules:
+      - alert: CertificateExpiresSoon
+        # Let's Encrypt certificates renew 30 days before they expire (roles/acme_cert),
+        # so under 14 days means renewal has been failing for two weeks
+        expr: probe_ssl_earliest_cert_expiry - time() < 14 * 86400
+        labels:
+          severity: warning
+        annotations:
+          summary: "The certificate for {{ $labels.probe }} expires in {{ $value | humanizeDuration }}"
+          description: "Renewal isn't working. `certbot renew --dry-run` on the machine that serves it."
+
+      - alert: ClockSkew
+        # Kerberos (AD logins) refuses clocks 5 minutes apart; alert long before. VMs
+        # can freeze with their host and wake up behind (chrony: makestep 1 -1).
+        expr: abs(node_timex_offset_seconds) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }}'s clock is {{ $value | humanizeDuration }} off"
+          description: "`chronyc tracking` and `chronyc sources -v` on {{ $labels.host }}."
+
+      - alert: SecurityUpdatesPending
+        expr: sum by (host) (apt_upgrades_pending{origin=~".*-security.*"}) > 0
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} has had {{ $value }} security updates waiting for a day"
+          description: "`apt list --upgradable` on {{ $labels.host }}."
+
+      - alert: RebootRequired
+        expr: node_reboot_required > 0
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} has needed a reboot for a day (updated kernel or libraries)"
+          description: "Reboot it in a quiet moment (staff machines: hibernate doesn't count)."
+
+  - name: lab automation
+    rules:
+      - alert: WorkstationNotCheckingIn
+        # Every workstation runs its configuration (ansible-pull) every 30 minutes and
+        # reports back (lab-events/configured). A running machine that hasn't for two
+        # hours is drifting from git: broken pull, broken playbook, or no network.
+        expr: |
+          (time() - lab_workstation_last_configured_timestamp_seconds > 7200)
+            and on (host) lab_workstation_info{power="running"}
+            and on (host) (time() - node_boot_time_seconds{job="workstations"} > 7200)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} hasn't finished a configuration run for {{ $value | humanizeDuration }}"
+          description: "`journalctl -u ansible-pull -n 100` on {{ $labels.host }}."
+
+      - alert: ReconcilerStopped
+        # lab-reconcile.timer starts the reconciler every minute (roles/runner)
+        expr: time() - node_systemd_timer_last_trigger_seconds{host="mgmt01",name="lab-reconcile.timer"} > 300
+        labels:
+          severity: critical
+        annotations:
+          summary: "The reconciler hasn't run for {{ $value | humanizeDuration }}"
+          description: >-
+            Changes merged to the release branch aren't being applied. `systemctl status lab-reconcile.timer` on mgmt01.
+
+      - alert: ReleaseFailedToApply
+        expr: lab_reconcile_failed == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The reconciler couldn't apply the latest release"
+          description: "`lab status` on mgmt01; the failed run is an operation on the admin page, with its log."
+
+      - alert: ReconcilerPaused
+        expr: lab_reconcile_paused == 1
+        for: 4h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The reconciler has been paused for over 4 hours"
+          description: "Someone touched /var/lib/lab/reconcile.paused and may have forgotten it (docs/operations.md)."
+
+      - alert: PortalWorkerStale
+        # The worker records what Proxmox reports every minute (observed.json); if it
+        # stops, the portal's view of the machines freezes
+        expr: time() - lab_observed_timestamp_seconds > 300
+        labels:
+          severity: critical
+        annotations:
+          summary: "The portal's worker hasn't checked on the machines for {{ $value | humanizeDuration }}"
+          description: "`systemctl status lab-portal-worker` and /var/log/lab-portal/ on mgmt01."
+
+      - alert: OperationsFailing
+        expr: lab_operations_failed_24h > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} lab operations failed in the last day"
+          description: "The admin page's Activity lists them, each with its log."
+
+      - alert: TunnelDown
+        # The internet's only way in (roles/portal_relay); handshakes renew every 2 minutes
+        expr: time() - lab_wireguard_latest_handshake_seconds > 300
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The WireGuard tunnel to the VPS has been quiet for {{ $value | humanizeDuration }}"
+          description: "lab.radicallydecent.com is unreachable from the internet. `wg show` on pve01; is the VPS up?"

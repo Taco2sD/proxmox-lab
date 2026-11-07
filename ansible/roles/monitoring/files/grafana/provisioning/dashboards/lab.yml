@@ -1,0 +1,13 @@
+# Grafana's dashboards (roles/monitoring) come from JSON files in git
+# (roles/monitoring/files/grafana/dashboards). Edits in Grafana's UI can't be saved over
+# them: change the JSON, commit, and the reconciler deploys it like everything else.
+apiVersion: 1
+providers:
+  - name: lab
+    folder: Lab
+    type: file
+    allowUiUpdates: false
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

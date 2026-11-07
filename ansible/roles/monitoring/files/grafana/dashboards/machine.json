@@ -1,0 +1,1422 @@
+{
+ "uid": "lab-machine",
+ "title": "Machine",
+ "description": "One machine in detail: server or workstation. Pick it at the top, or click a name on the Lab overview.",
+ "tags": [
+  "lab"
+ ],
+ "timezone": "browser",
+ "editable": false,
+ "graphTooltip": 1,
+ "refresh": "30s",
+ "schemaVersion": 41,
+ "version": 1,
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "timepicker": {
+  "refresh_intervals": [
+   "15s",
+   "30s",
+   "1m",
+   "5m",
+   "15m"
+  ]
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "host",
+    "label": "Machine",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "prometheus"
+    },
+    "hide": 0,
+    "query": {
+     "query": "query_result(max by (host) (up{job=~\"servers|workstations\"}))",
+     "refId": "vars",
+     "qryType": 3
+    },
+    "definition": "query_result(max by (host) (up{job=~\"servers|workstations\"}))",
+    "regex": "/host=\"([^\"]+)\"/",
+    "refresh": 2,
+    "sort": 1
+   }
+  ]
+ },
+ "annotations": {
+  "list": []
+ },
+ "links": [
+  {
+   "title": "Portal admin",
+   "type": "link",
+   "url": "/admin",
+   "icon": "external link",
+   "targetBlank": false
+  },
+  {
+   "title": "Prometheus alerts",
+   "type": "link",
+   "url": "/prometheus/alerts",
+   "icon": "bolt",
+   "targetBlank": true
+  },
+  {
+   "title": "Prometheus targets",
+   "type": "link",
+   "url": "/prometheus/targets",
+   "icon": "info",
+   "targetBlank": true
+  },
+  {
+   "title": "Lab overview",
+   "type": "link",
+   "url": "/grafana/d/lab-overview/lab-overview",
+   "icon": "dashboard"
+  }
+ ],
+ "panels": [
+  {
+   "id": 1,
+   "type": "stat",
+   "title": "Status",
+   "description": "Whether Prometheus can scrape the machine's node_exporter right now.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max(up{host=\"$host\",job=~\"servers|workstations\"})",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "1": {
+         "text": "Up",
+         "color": "green",
+         "index": 0
+        },
+        "0": {
+         "text": "Down",
+         "color": "red",
+         "index": 1
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "What it is",
+   "description": "Workstations: catalog role, owner and power state. Servers: their job in the lab.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 3,
+    "y": 0,
+    "w": 5,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_workstation_info{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "{{role}} \u00b7 {{owner}} \u00b7 {{power}}"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "up{host=\"$host\",job=\"servers\"}",
+     "refId": "B",
+     "legendFormat": "{{role}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "name",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Up for",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "time() - node_boot_time_seconds{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "CPU cores",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 11,
+    "y": 0,
+    "w": 2,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "count(node_cpu_seconds_total{host=\"$host\",mode=\"idle\"})",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Memory",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 13,
+    "y": 0,
+    "w": 2,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_memory_MemTotal_bytes{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "decimals": 1,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 6,
+   "type": "stat",
+   "title": "Configured",
+   "description": "Workstations: since the last finished configuration run (ansible-pull, every 30 minutes).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 15,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "time() - lab_workstation_last_configured_timestamp_seconds{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 3600
+       },
+       {
+        "color": "red",
+        "value": 7200
+       }
+      ]
+     },
+     "decimals": 0,
+     "noValue": "n/a"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Updates",
+   "description": "Pending package updates.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 0,
+    "w": 2,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(apt_upgrades_pending{host=\"$host\"}) or vector(0)",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 8,
+   "type": "stat",
+   "title": "Security",
+   "description": "Pending security updates.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 20,
+    "y": 0,
+    "w": 2,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(apt_upgrades_pending{host=\"$host\",origin=~\".*-security.*\"}) or vector(0)",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 9,
+   "type": "stat",
+   "title": "Failed units",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 22,
+    "y": 0,
+    "w": 2,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(node_systemd_unit_state{host=\"$host\",state=\"failed\"}) or vector(0)",
+     "refId": "A",
+     "legendFormat": "__auto"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "auto",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "CPU",
+   "description": "Busy time by kind, as a share of all cores. iowait: waiting on disk; steal: the hypervisor gave the time to another VM.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (mode) (rate(node_cpu_seconds_total{host=\"$host\",mode!=\"idle\"}[$__rate_interval])) / scalar(count(node_cpu_seconds_total{host=\"$host\",mode=\"idle\"}))",
+     "refId": "A",
+     "legendFormat": "{{mode}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 70,
+      "gradientMode": "none",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 11,
+   "type": "timeseries",
+   "title": "Memory",
+   "description": "Used is what programs hold; cache is what the kernel gives back when they need it.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_memory_MemTotal_bytes{host=\"$host\"} - node_memory_MemAvailable_bytes{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "used"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_memory_MemAvailable_bytes{host=\"$host\"} - node_memory_MemFree_bytes{host=\"$host\"}",
+     "refId": "B",
+     "legendFormat": "cache (reclaimable)"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_memory_MemTotal_bytes{host=\"$host\"}",
+     "refId": "C",
+     "legendFormat": "total"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_memory_SwapTotal_bytes{host=\"$host\"} - node_memory_SwapFree_bytes{host=\"$host\"}",
+     "refId": "D",
+     "legendFormat": "swap used"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 70,
+      "gradientMode": "none",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "total"
+      },
+      "properties": [
+       {
+        "id": "custom.stacking",
+        "value": {
+         "mode": "none",
+         "group": "A"
+        }
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "swap used"
+      },
+      "properties": [
+       {
+        "id": "custom.stacking",
+        "value": {
+         "mode": "none"
+        }
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "red"
+        }
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 12,
+   "type": "bargauge",
+   "title": "Filesystems",
+   "description": "",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 12,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "1 - node_filesystem_avail_bytes{host=\"$host\",fstype!~\"tmpfs|ramfs|squashfs|overlay|efivarfs|fuse.*\"} / node_filesystem_size_bytes{host=\"$host\",fstype!~\"tmpfs|ramfs|squashfs|overlay|efivarfs|fuse.*\"}",
+     "refId": "A",
+     "legendFormat": "{{mountpoint}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.75
+       },
+       {
+        "color": "red",
+        "value": 0.9
+       }
+      ]
+     },
+     "min": 0,
+     "max": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "gradient",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "top",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "Disk I/O",
+   "description": "Reads up, writes down.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 12,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (device) (rate(node_disk_read_bytes_total{host=\"$host\"}[$__rate_interval])) > 0",
+     "refId": "A",
+     "legendFormat": "{{device}} read"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "-sum by (device) (rate(node_disk_written_bytes_total{host=\"$host\"}[$__rate_interval])) < 0",
+     "refId": "B",
+     "legendFormat": "{{device}} write"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Network",
+   "description": "Received up, sent down.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 12,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "rate(node_network_receive_bytes_total{host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*|tap.*|fwln.*|fwpr.*|fwbr.*\"}[$__rate_interval]) > 0",
+     "refId": "A",
+     "legendFormat": "{{device}} in"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "-rate(node_network_transmit_bytes_total{host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*|tap.*|fwln.*|fwpr.*|fwbr.*\"}[$__rate_interval]) < 0",
+     "refId": "B",
+     "legendFormat": "{{device}} out"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "Load",
+   "description": "Processes running or waiting (including on disk). Above the core count for long means a queue.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 20,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_load1{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "1 min"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_load5{host=\"$host\"}",
+     "refId": "B",
+     "legendFormat": "5 min"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_load15{host=\"$host\"}",
+     "refId": "C",
+     "legendFormat": "15 min"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "count(node_cpu_seconds_total{host=\"$host\",mode=\"idle\"})",
+     "refId": "D",
+     "legendFormat": "cores"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "cores"
+      },
+      "properties": [
+       {
+        "id": "custom.stacking",
+        "value": {
+         "mode": "none",
+         "group": "A"
+        }
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 16,
+   "type": "timeseries",
+   "title": "Clock offset",
+   "description": "Distance from the time source (chrony). Kerberos refuses 5 minutes.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 20,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_timex_offset_seconds{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "offset"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": -1,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 17,
+   "type": "table",
+   "title": "Failed systemd units",
+   "description": "`systemctl --failed` on the machine, live.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 20,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_systemd_unit_state{host=\"$host\",state=\"failed\"} == 1",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "No failed units"
+    },
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "filterFieldsByName",
+     "options": {
+      "include": {
+       "names": [
+        "name",
+        "type"
+       ]
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "name": "Unit",
+       "type": "Type"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 18,
+   "type": "table",
+   "title": "Pending updates",
+   "description": "By repository: -security lines are the ones that matter most.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 28,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "apt_upgrades_pending{host=\"$host\"} > 0",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "Up to date"
+    },
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "filterFieldsByName",
+     "options": {
+      "include": {
+       "names": [
+        "origin",
+        "arch",
+        "Value"
+       ]
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "origin": "From",
+       "arch": "Arch",
+       "Value": "Packages"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 19,
+   "type": "timeseries",
+   "title": "Proxmox's view of this VM",
+   "description": "The same machine from the hypervisor's side (pve-exporter). Inside and outside should agree; when the guest is down this still shows whether the VM is spinning.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 28,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "pve_cpu_usage_ratio * on (id) group_left (name) pve_guest_info{name=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "CPU (share of its cores)"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "pve_memory_usage_bytes / pve_memory_size_bytes * on (id) group_left (name) pve_guest_info{name=\"$host\"}",
+     "refId": "B",
+     "legendFormat": "memory (share of its RAM)"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 15,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  }
+ ]
+}

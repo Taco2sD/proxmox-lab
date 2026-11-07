@@ -8,6 +8,7 @@
 - name: Domain controller (dc01) - DNS names, DHCP, LDAPS, teams
   hosts: dc01
   roles:
+    - node_exporter  # metrics for Prometheus (roles/monitoring)
     - lab_dns        # AD DNS zones for the public names, so lab machines reach lab hosts
     - dhcp_server    # dnsmasq: base config, per-host reservations directory, DNS hook
     - samba_ldaps    # Let's Encrypt certificate for LDAPS (the admin page signs in over it)
@@ -16,20 +17,24 @@
 - name: Hypervisor (pve01) - portal relay and backups
   hosts: pve01
   roles:
+    - node_exporter  # metrics for Prometheus (roles/monitoring)
     - portal_relay   # tunnel -> mgmt01:8443, and the tunnel's firewall
     - pve_backups    # nightly backups of dc01 and mgmt01
 
-- name: Runner (mgmt01) - lab, web, PXE, portal
+- name: Runner (mgmt01) - lab, web, PXE, portal, monitoring
   hosts: mgmt01
   roles:
+    - node_exporter  # metrics for Prometheus (roles/monitoring)
     - runner         # lab, lablib, state directories, the reconciler timer
     - lab_web        # nginx: HTTPS sites, certificate, lab-events log, join-password rules
     - pxe            # TFTP boot menu, the image builder's install record, ISO over HTTP
     - portal         # web side and worker
     - guacamole      # the browser terminal
+    - monitoring     # Prometheus, Grafana, the alert rules
 
 # Last: it writes into mgmt01's portal directory, which the play above creates
-- name: Console token for the portal (pve01, handed to mgmt01)
+- name: Tokens for mgmt01's services (made on pve01, handed to mgmt01)
   hosts: pve01
   roles:
     - pve_console    # API token for the portal: VM consoles only (My lab's Desktop)
+    - pve_monitoring # read-only API token for Prometheus; the tunnel's metrics

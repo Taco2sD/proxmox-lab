@@ -65,7 +65,7 @@ flowchart LR
     subgraph PVE["pve01: Proxmox VE 9 (10.10.10.10)"]
       RL["relay :8443<br/>(WireGuard dials out)"]
       DC["dc01<br/>Samba AD DC, DNS, LDAPS<br/>DHCP + DDNS<br/>10.10.10.5"]
-      MG["mgmt01 (LXC)<br/>lab runner + reconciler<br/>portal, Guacamole, PXE<br/>10.10.10.6"]
+      MG["mgmt01 (LXC)<br/>lab runner + reconciler<br/>portal, Guacamole, PXE<br/>Prometheus, Grafana<br/>10.10.10.6"]
       IMG["golden image<br/>(template)"]
       WS["workstations<br/>fleet + guests"]
     end
@@ -77,6 +77,7 @@ flowchart LR
   WS -- "DHCP, DNS, Kerberos, LDAP, NTP" --> DC
   WS -- "join password, events (HTTPS)" --> MG
   MG -- "SSH (browser terminal)" --> WS
+  MG -- "scrape :9100, probes" --> WS & DC
   WS -- "ansible-pull (stable)" --> GH
   MG -- "reconcile (stable)" --> GH
 ```
@@ -84,7 +85,7 @@ flowchart LR
 | Host | What | Notes |
 |---|---|---|
 | `dc01` | Samba AD DC (`AD.LAB.INTERNAL`), DNS, dnsmasq DHCP | RFC2307 Unix IDs in AD; DHCP registers clients in DNS; LDAPS with a Let's Encrypt certificate |
-| `mgmt01` | Unprivileged LXC: the `lab` runner and reconciler, nginx, the portal, Apache Guacamole (Docker), TFTP | Runs OpenTofu and Ansible; Secure Boot PXE (signed shim + GRUB) for image builds |
+| `mgmt01` | Unprivileged LXC: the `lab` runner and reconciler, nginx, the portal, Apache Guacamole and Prometheus + Grafana (Docker), TFTP | Runs OpenTofu and Ansible; Secure Boot PXE (signed shim + GRUB) for image builds |
 | `pve01` | Proxmox VE, nested in Hyper-V | VMs managed through its API (`terraform@pve`, not root); dials the WireGuard tunnel to the VPS; nightly backups of dc01 and mgmt01 |
 | fleet | Long-lived workstations, one file each in `inventory/workstations/` | Changed through git |
 | guests `ws-<user>` | Workstations built through the portal | One owner each, up to four; runtime records on mgmt01 |
@@ -138,6 +139,11 @@ flowchart LR
 - **The lab dials out; nothing dials in.** pve01 keeps a WireGuard tunnel open to the
   VPS, which may reach only the Proxmox UI and a relay to the portal's internet-facing
   port. Every hop is TLS with a verified certificate.
+- **Monitoring follows the machines.** Prometheus scrapes node_exporter on every
+  machine, Proxmox's API and probes of each service; its workstation targets are
+  written from the lab's own records, so machines join and leave the dashboards as
+  they're built, hibernated and deleted. Alert rules cover what someone would act on,
+  including the lab's own automation ([docs/monitoring.md](docs/monitoring.md)).
 
 ## Repository layout
 
@@ -154,8 +160,8 @@ vps/            the public edge: nginx sites, sign-in gate, acme-dns (configured
 host-setup/     Hyper-V + Proxmox build scripts
 tools/          check: every check CI runs; the inventory and reference checkers
 tests/          unit tests for the Python
-docs/           operations.md (runbook), self-service.md, boundaries.md, lessons.md,
-                CONTRIBUTING.md
+docs/           operations.md (runbook), self-service.md, monitoring.md, boundaries.md,
+                lessons.md, CONTRIBUTING.md
 ```
 
 The `lab` command on mgmt01 is the one way in: `lab status`, `lab doctor`, `lab plan`,
@@ -175,5 +181,7 @@ What went wrong while building this, and why, is in [docs/lessons.md](docs/lesso
 - NFS home directories and project storage with `sec=krb5`, using the RFC2307 IDs.
 - Single sign-on through the company's identity provider (Entra ID, Okta) for the portal
   and the gate, instead of a shared lab access account plus a separate AD sign-in.
+- Alertmanager routing alerts to an on-call rotation, Loki for logs next to the
+  metrics, and Prometheus running somewhere other than the machine it watches.
 - Breached-password screening and MFA in line with NIST SP 800-63B rev. 4, rather than
   password expiry.

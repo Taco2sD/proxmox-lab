@@ -36,6 +36,9 @@ pve_fqdn: pve.radicallydecent.com       # Proxmox UI and API
 ldaps_fqdn: dc01.lab.radicallydecent.com  # dc01's LDAPS (exists only inside the lab)
 acme_email: jesse@radicallydecent.com
 acme_dns_api: https://acme-ns.radicallydecent.com
+# The VPS that answers for the public names (vps/README.md); monitoring probes the
+# public sign-in page there (roles/monitoring: prometheus.yml)
+vps_ip: 84.247.130.118
 
 # ---- Git ----------------------------------------------------------------------------
 repo_url: https://github.com/Taco2sD/proxmox-lab.git
@@ -86,7 +89,8 @@ images:
   desktop: {vmids: [9002, 9003], source: ubuntu-server}
 # Baked into both images (roles base and ad_join still make sure of them)
 image_packages: [qemu-guest-agent, ansible-core, git, curl, vim, htop, tmux, adcli, sssd-ad, sssd-tools,
-                 krb5-user, libnss-sss, libpam-sss, ldap-utils, libsasl2-modules-gssapi-mit, bind9-dnsutils]
+                 krb5-user, libnss-sss, libpam-sss, ldap-utils, libsasl2-modules-gssapi-mit, bind9-dnsutils,
+                 prometheus-node-exporter]
 # The desktop itself (roles/desktop; baked into the desktop image): Ubuntu's own GNOME
 # desktop and login screen. People reach it as the VM's screen, in the browser (My lab:
 # Desktop, pve01's console relay through Guacamole) or in the Proxmox UI.

@@ -1,0 +1,25 @@
+#!/bin/sh
+# /usr/local/libexec/lab-wg-metrics on pve01 (roles/pve_monitoring), run every 30 s by
+# lab-wg-metrics.timer: the WireGuard tunnel to the VPS (roles/portal_relay) as metrics
+# for node_exporter's textfile collector. WireGuard is silent by design, so the latest
+# handshake is the one sign of life: with a 25 s keepalive it renews every two minutes,
+# and anything older than about three minutes means the VPS isn't answering.
+set -eu
+dir=/var/lib/prometheus/node-exporter
+tmp=$(mktemp "$dir/.wireguard.XXXXXX")
+{
+    echo "# HELP lab_wireguard_latest_handshake_seconds Unix time of each tunnel peer's latest handshake (0: never)."
+    echo "# TYPE lab_wireguard_latest_handshake_seconds gauge"
+    wg show all latest-handshakes | while read -r iface peer when; do
+        echo "lab_wireguard_latest_handshake_seconds{interface=\"$iface\",peer=\"$peer\"} $when"
+    done
+    echo "# HELP lab_wireguard_transfer_bytes Bytes through each tunnel peer since the tunnel came up."
+    echo "# TYPE lab_wireguard_transfer_bytes counter"
+    wg show all transfer | while read -r iface peer rx tx; do
+        echo "lab_wireguard_transfer_bytes{interface=\"$iface\",peer=\"$peer\",direction=\"received\"} $rx"
+        echo "lab_wireguard_transfer_bytes{interface=\"$iface\",peer=\"$peer\",direction=\"sent\"} $tx"
+    done
+} > "$tmp"
+chmod 644 "$tmp"
+# Renamed into place: node_exporter never reads half a file
+mv "$tmp" "$dir/wireguard.prom"

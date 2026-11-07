@@ -1,0 +1,93 @@
+# /etc/lab-monitoring/prometheus/prometheus.yml on mgmt01 (roles/monitoring): what Prometheus
+# collects. Every 15 seconds it asks each target for its numbers (pull, not push: a
+# target that doesn't answer is recorded as up == 0 at once, which is the most important
+# alert of all). Reloaded on change (handler: SIGHUP), no restart.
+#
+# Labels every machine's metrics carry, so dashboards and alerts can say who and what:
+#   host    the machine's name (dc01, pve01, mgmt01, ws31...)
+#   role    servers: what it does; workstations: its catalog role (catalog/<role>.yml)
+#   owner, kind, vmid   workstations only (from lab-metrics)
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files: [/etc/prometheus/alerts.yml]
+
+scrape_configs:
+  - job_name: prometheus
+    metrics_path: /prometheus/metrics
+    static_configs:
+      - targets: [127.0.0.1:9090]
+        labels: {host: mgmt01}
+
+  # The three servers. Their list doesn't change, so it's written here. honor_labels:
+  # mgmt01's lab_* metrics (lab-metrics, through the textfile collector) describe
+  # workstations and carry those workstations' host and role labels; they must win
+  # over mgmt01's own.
+  - job_name: servers
+    honor_labels: true
+    static_configs:
+      - targets: [{{ dc01_ip }}:9100]
+        labels: {host: dc01, role: domain-controller}
+      - targets: [{{ pve01_ip }}:9100]
+        labels: {host: pve01, role: hypervisor}
+      - targets: [{{ mgmt01_ip }}:9100]
+        labels: {host: mgmt01, role: management}
+
+  # The workstations: whatever is running right now. lab-metrics rewrites this file
+  # every 30 seconds from the lab's own records and what Proxmox reports, and Prometheus
+  # notices the change by itself. A new machine appears here within a minute of
+  # its first configuration run; a deleted or hibernated one disappears, and its
+  # series end (no false "down" alarm for a machine that is meant to be off).
+  - job_name: workstations
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/workstations.json]
+
+  # Proxmox's own view (pve-exporter): every VM's CPU, memory, disk and network, running
+  # or not, plus storage pools and the node. The exporter fetches the API at
+  # https://<target>:8006 with the read-only token (roles/pve_monitoring).
+  - job_name: proxmox
+    metrics_path: /pve
+    params:
+      module: [default]
+      cluster: ["1"]
+      node: ["1"]
+    static_configs:
+      - targets: [{{ pve_fqdn }}]
+        labels: {host: pve01}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: 127.0.0.1:9221
+
+  # Services probed from the outside by blackbox (blackbox.yml has the modules), the way
+  # a user meets them: a service can be "active" in systemd and still not answer. The
+  # probe label is the name dashboards and alerts show; the TLS ones also report their
+  # certificate's expiry date (probe_ssl_earliest_cert_expiry).
+{% set probes = [
+  {'module': 'https', 'probe': 'Portal', 'target': 'https://' ~ lab_fqdn ~ '/'},
+  {'module': 'https', 'probe': 'Guacamole', 'target': 'https://' ~ lab_fqdn ~ '/guacamole/'},
+  {'module': 'https', 'probe': 'Grafana', 'target': 'https://' ~ lab_fqdn ~ '/grafana/api/health'},
+  {'module': 'https', 'probe': 'Proxmox API', 'target': 'https://' ~ pve_fqdn ~ ':8006/'},
+  {'module': 'public_gate', 'probe': 'Public sign-in (VPS)', 'target': 'https://' ~ vps_ip ~ '/'},
+  {'module': 'tls', 'probe': 'LDAPS (dc01)', 'target': ldaps_fqdn ~ ':636'},
+  {'module': 'tcp', 'probe': 'Kerberos (dc01)', 'target': dc01_ip ~ ':88'},
+  {'module': 'dns', 'probe': 'DNS (dc01)', 'target': dc01_ip ~ ':53'},
+] %}
+  - job_name: probes
+    metrics_path: /probe
+    static_configs:
+{% for p in probes %}
+      - targets: ["{{ p.target }}"]
+        labels: {probe: "{{ p.probe }}", module: {{ p.module }}}
+{% endfor %}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [module]
+        target_label: __param_module
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115

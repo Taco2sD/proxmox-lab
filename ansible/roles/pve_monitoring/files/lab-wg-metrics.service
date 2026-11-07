@@ -1,0 +1,6 @@
+# /etc/systemd/system/lab-wg-metrics.service on pve01 (roles/pve_monitoring)
+[Unit]
+Description=WireGuard tunnel metrics for node_exporter
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/lab-wg-metrics

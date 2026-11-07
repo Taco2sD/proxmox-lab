@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""lab-metrics: the lab's own records, turned into what Prometheus needs.
+/usr/local/libexec/lab-metrics on mgmt01 (roles/monitoring), run every 30 seconds by
+lab-metrics.timer. Two outputs:
+
+1. Service discovery: /etc/lab-monitoring/prometheus/targets/workstations.json,
+   Prometheus's file_sd list of the workstations to scrape. A machine is listed while it is running
+   and configured: the fleet (inventory/workstations/) and every portal machine that
+   is ready. New ones appear within a minute of their first configuration run; deleted,
+   hibernated or stopped ones drop out, so they don't raise "down" alerts, and their
+   dashboard panels go away with them (Grafana's panels repeat over what is listed).
+
+2. Lab metrics, through node_exporter's textfile collector
+   (/var/lib/prometheus/node-exporter/lab.prom, scraped as part of mgmt01): every
+   workstation with its owner, role and power state, when each last finished a
+   configuration run and last had someone on it, the memory budget the portal admits
+   machines against, the reconciler's state, golden image ages and failed operations.
+
+Where it reads from (all written by `lab` and the portal's worker; lablib.py says what
+each file is): guest records, the fleet in git, observed.json (Proxmox's view, every
+minute), checkins.json, activity.json, reconcile.json, image.json, ops/.
+"""
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/lab")
+import lablib as L  # noqa: E402
+
+TARGETS = Path("/etc/lab-monitoring/prometheus/targets/workstations.json")
+TEXTFILE = Path("/var/lib/prometheus/node-exporter/lab.prom")
+MIB = 1024 * 1024
+
+
+def write_atomic(path, text):
+    """Readers (Prometheus, node_exporter) never see half a file: write, then rename."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.chmod(tmp, 0o644)
+    tmp.replace(path)
+
+
+def label_text(labels):
+    def esc(v):
+        return str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return ",".join(f'{k}="{esc(v)}"' for k, v in labels.items())
+
+
+class Metrics:
+    """Prometheus's text format: a HELP and TYPE line, then the samples, per metric."""
+
+    def __init__(self):
+        self.out = []
+
+    def add(self, name, help_text, samples, kind="gauge"):
+        self.out += [f"# HELP {name} {help_text}", f"# TYPE {name} {kind}"]
+        for labels, value in samples:
+            self.out.append(f"{name}{{{label_text(labels)}}} {value}" if labels else f"{name} {value}")
+
+    def text(self):
+        return "\n".join(self.out) + "\n"
+
+
+def main():
+    now = time.time()
+    cfg, cat = L.settings(), L.catalog()
+    observed = L.read_json(L.OBSERVED) or {}
+    vms = observed.get("vms", {})
+    checkins = L.read_json(L.CHECKINS) or {}
+    activity = L.read_json(L.ACTIVITY) or {}
+    records = L.guests()
+    machines = L.desired()
+
+    targets, info, configured, session, memory = [], [], [], [], []
+    for host, spec in sorted(machines.items()):
+        record = records.get(host, {})
+        role = spec["role"]
+        kind = cat.get(role, {}).get("kind", "")
+        vm = vms.get(str(spec["vmid"]), {})
+        power = vm.get("power", "missing")          # running, hibernated, stopped; missing: no VM (yet)
+        state = record.get("state", "fleet")        # a portal machine's build state
+        labels = {"host": host, "owner": spec.get("owner", ""), "role": role, "kind": kind,
+                  "vmid": str(spec["vmid"])}
+        info.append(({**labels, "power": power, "state": state, "ip": spec["ip"]}, 1))
+        memory.append(({"host": host}, cat.get(role, {}).get("size", {}).get("memory_mb", 0) * MIB))
+        if spec["ip"] in checkins:
+            configured.append(({"host": host}, checkins[spec["ip"]]))
+        if spec["ip"] in activity:
+            session.append(({"host": host}, activity[spec["ip"]]))
+        if power == "running" and state in ("ready", "fleet"):
+            targets.append({"targets": [f"{spec['ip']}:9100"], "labels": labels})
+
+    # The portal's admission control, the same sum lablib.admission() makes
+    active = [r for r in records.values() if not r.get("rejected") and r.get("state") != "removing"]
+    committed = sum(cat.get(r.get("role"), {}).get("size", {}).get("memory_mb", 0) for r in active) * MIB
+
+    reconcile = L.read_json(L.RECONCILE) or {}
+    recent = [o for o in L.ops(limit=500) if o.get("created", 0) > now - 86400]
+    by_state = {}
+    for o in recent:
+        by_state[o.get("state", "unknown")] = by_state.get(o.get("state", "unknown"), 0) + 1
+
+    m = Metrics()
+    m.add("lab_workstation_info", "Every workstation the lab keeps, with its owner, role and power state (value always 1).", info)
+    m.add("lab_workstation_memory_bytes", "Memory each workstation is given (catalog size.memory_mb).", memory)
+    m.add("lab_workstation_last_configured_timestamp_seconds",
+          "When each workstation last finished a configuration run (ansible-pull reporting to lab-events).", configured)
+    m.add("lab_workstation_last_session_timestamp_seconds",
+          "When each workstation last reported someone using it (lab-activity).", session)
+    m.add("lab_guest_memory_budget_bytes", "Memory the portal may hand out to workstations (guest_memory_mb).",
+          [({}, cfg["guest_memory_mb"] * MIB)])
+    m.add("lab_guest_memory_committed_bytes", "Memory promised to existing portal workstations, running or not.",
+          [({}, committed)])
+    m.add("lab_guest_slots", "Portal workstations at once: the cap (max_guests) and how many exist.",
+          [({"kind": "max"}, cfg["max_guests"]), ({"kind": "used"}, len(active))])
+    m.add("lab_reconcile_last_full_run_timestamp_seconds", "The reconciler's last full deploy (lab reconcile).",
+          [({}, reconcile.get("full_run", 0))])
+    m.add("lab_reconcile_failed", "1 if the reconciler's last attempt at the release branch failed.",
+          [({}, 1 if reconcile.get("failed_commit") else 0)])
+    m.add("lab_reconcile_paused", "1 while /var/lib/lab/reconcile.paused exists.", [({}, 1 if L.PAUSED.exists() else 0)])
+    m.add("lab_reconcile_pending_destroys", "Machines removed from git, waiting for an admin's approval to destroy.",
+          [({}, len(reconcile.get("pending_destroys") or []))])
+    m.add("lab_image_built_timestamp_seconds", "When each golden image was built (lab image build).",
+          [({"kind": k}, v.get("built", 0)) for k, v in sorted(L.images().items())])
+    m.add("lab_observed_timestamp_seconds", "When the portal's worker last recorded Proxmox's view of the machines.",
+          [({}, observed.get("time", 0))])
+    m.add("lab_operations_24h", "Lab operations started in the last 24 hours, by state.",
+          [({"state": s}, n) for s, n in sorted(by_state.items())])
+    m.add("lab_operations_failed_24h", "Lab operations that failed in the last 24 hours.", [({}, by_state.get("failed", 0))])
+    m.add("lab_metrics_last_run_timestamp_seconds", "When lab-metrics last ran.", [({}, now)])
+
+    write_atomic(TARGETS, json.dumps(targets, indent=1) + "\n")
+    write_atomic(TEXTFILE, m.text())
+
+
+if __name__ == "__main__":
+    main()

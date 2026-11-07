@@ -1,0 +1,13 @@
+# Prometheus and blackbox re-read their configuration on SIGHUP: no restart, no gap
+- name: Reload Prometheus
+  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml kill -s SIGHUP prometheus
+  changed_when: true
+
+- name: Reload blackbox
+  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml kill -s SIGHUP blackbox
+  changed_when: true
+
+# Grafana reads provisioned data sources and its environment only at start
+- name: Restart Grafana
+  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml restart grafana
+  changed_when: true

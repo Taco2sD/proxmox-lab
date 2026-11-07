@@ -1,0 +1,57 @@
+# /etc/lab-monitoring/blackbox/blackbox.yml on mgmt01 (roles/monitoring): how each kind of probe
+# in prometheus.yml (job "probes") checks its service. Certificates are always verified:
+# an expired or wrong certificate is a failed probe, as it would be for a user.
+modules:
+  # A page or API answers over HTTPS (any 2xx)
+  https:
+    prober: http
+    timeout: 10s
+    http:
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+
+  # The internet's way in: the VPS's sign-in gate for {{ lab_fqdn }} (vps/README.md),
+  # asked by address with the real name, because inside the lab that name points at
+  # mgmt01 (roles/lab_dns). Signed out, the gate answers with its sign-in page or a
+  # redirect to it; either means the VPS, its nginx and its certificate are fine.
+  public_gate:
+    prober: http
+    timeout: 10s
+    http:
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+      no_follow_redirects: true
+      valid_status_codes: [200, 302, 401, 403]
+      headers:
+        Host: {{ lab_fqdn }}
+      tls_config:
+        server_name: {{ lab_fqdn }}
+
+  # A TLS handshake with a valid certificate (LDAPS)
+  tls:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      tls: true
+
+  # A port accepts connections (Kerberos)
+  tcp:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+
+  # AD's DNS answers for the domain controller's own name
+  dns:
+    prober: dns
+    timeout: 5s
+    dns:
+      preferred_ip_protocol: ip4
+      transport_protocol: udp
+      query_name: {{ ad_dc }}
+      query_type: A
+      valid_rcodes: [NOERROR]
+      validate_answer_rrs:
+        # Single quotes: YAML passes the backslashes through to the regular expression
+        fail_if_not_matches_regexp: ['\tIN\tA\t{{ dc01_ip | regex_escape }}$']

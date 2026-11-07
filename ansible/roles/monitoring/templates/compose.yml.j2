@@ -1,0 +1,85 @@
+# /etc/lab-monitoring/compose.yml on mgmt01 (roles/monitoring): the lab's monitoring.
+#
+#   prometheus     collects and stores every metric, evaluates the alert rules
+#   blackbox       probes services from the outside: HTTPS, LDAPS, DNS, Kerberos
+#   pve-exporter   turns the Proxmox API into metrics (token: roles/pve_monitoring)
+#   grafana        the dashboards, at https://{{ lab_fqdn }}/grafana/
+#
+# Host networking for all four: they scrape and probe lab addresses as mgmt01 itself,
+# and each listens on 127.0.0.1 only; nginx publishes Grafana and Prometheus's own
+# pages (roles/lab_web: lab-portal-locations.conf), behind the portal's sign-in gate.
+#
+# Configuration is mounted by directory, never as single files: Ansible replaces a file
+# by writing a new one and renaming it over the old, and a single-file bind mount stays
+# on the old file, so a reload would re-read stale rules.
+#
+# Images are pinned by digest as well as tag (as in roles/guacamole: a tag can be
+# re-pushed, a digest can't). To update: pull the new tag, `docker images --digests`.
+services:
+  prometheus:
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Whichever comes first: a month of history, or 2 GB of mgmt01's disk
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=2GB
+      - --web.listen-address=127.0.0.1:9090
+      # Served under /prometheus/ (links in its pages and alerts point there)
+      - --web.external-url=https://{{ lab_fqdn }}/prometheus/
+    volumes:
+      # prometheus.yml, alerts.yml, and targets/ (workstations, rewritten by lab-metrics
+      # as machines come and go)
+      - /etc/lab-monitoring/prometheus:/etc/prometheus:ro
+      - /var/lib/lab-monitoring/prometheus:/prometheus
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.29.1@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+      - --web.listen-address=127.0.0.1:9115
+    volumes:
+      - /etc/lab-monitoring/blackbox:/etc/blackbox:ro
+
+  pve-exporter:
+    image: prompve/prometheus-pve-exporter:3.11.0@sha256:290756c34fd13e1d9972b8e64344d49a15ab99dd0053b29d9716f1ca4ae4c069
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --web.listen-address=127.0.0.1:9221
+    env_file:
+      # PVE_USER, PVE_TOKEN_NAME, PVE_TOKEN_VALUE: made on pve01 by roles/pve_monitoring,
+      # which runs after this role (until then the exporter answers with errors)
+      - path: /etc/lab-monitoring/pve.env
+        required: false
+
+  grafana:
+    image: grafana/grafana:13.2.5@sha256:9f7aa1e1e3246aade5792d35a738049f7f32f89cd51d1956cf426a4e86268a84
+    restart: unless-stopped
+    network_mode: host
+    env_file: /etc/lab-monitoring/grafana.env      # the admin password (root-only file)
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_SERVER_ROOT_URL: https://{{ lab_fqdn }}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Anyone past the portal's sign-in gate may look, not edit: dashboards live in git
+      # (roles/monitoring/files/grafana/dashboards), not in Grafana's database
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/lab-overview.json
+      # No calls home and no plugin downloads: the lab runs without them
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - /etc/lab-monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /etc/lab-monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - /var/lib/lab-monitoring/grafana:/var/lib/grafana

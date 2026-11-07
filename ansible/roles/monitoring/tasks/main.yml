@@ -1,0 +1,129 @@
+# mgmt01: the lab's monitoring. Prometheus collects (node_exporter on every machine,
+# Proxmox's API, probes of each service), Grafana shows it at
+# https://lab.radicallydecent.com/grafana/ (the admin page's Monitoring button), and the
+# alert rules in files/alerts.yml say when someone needs to act. templates/compose.yml.j2
+# explains the containers; docs/monitoring.md the whole design.
+#
+# Part of ansible/site.yml, after roles/guacamole (Docker) and before
+# roles/pve_monitoring, which puts the Proxmox token in /etc/lab-monitoring.
+
+- name: Configuration directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/lab-monitoring
+    - /etc/lab-monitoring/prometheus
+    - /etc/lab-monitoring/prometheus/targets
+    - /etc/lab-monitoring/blackbox
+    - /etc/lab-monitoring/grafana
+
+# The containers' users: Prometheus runs as nobody, Grafana as uid 472
+- name: Data directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.uid }}"
+    group: "{{ item.gid }}"
+    mode: "0750"
+  loop:
+    - { path: /var/lib/lab-monitoring, uid: 0, gid: 0 }
+    - { path: /var/lib/lab-monitoring/prometheus, uid: 65534, gid: 65534 }
+    - { path: /var/lib/lab-monitoring/grafana, uid: 472, gid: 0 }
+
+- name: Grafana's admin password (made once; root only)
+  ansible.builtin.shell: |
+    set -e
+    umask 077
+    test -s /etc/lab-monitoring/grafana.env && exit 0
+    echo "GF_SECURITY_ADMIN_PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)" > /etc/lab-monitoring/grafana.env
+    echo created
+  args:
+    executable: /bin/bash
+  register: grafana_secret
+  changed_when: "'created' in grafana_secret.stdout"
+
+- name: Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/lab-monitoring/prometheus/prometheus.yml
+    mode: "0644"
+  notify: Reload Prometheus
+
+- name: Blackbox configuration
+  ansible.builtin.template:
+    src: blackbox.yml.j2
+    dest: /etc/lab-monitoring/blackbox/blackbox.yml
+    mode: "0644"
+  notify: Reload blackbox
+
+- name: Alert rules
+  ansible.builtin.copy:
+    src: alerts.yml
+    dest: /etc/lab-monitoring/prometheus/alerts.yml
+    mode: "0644"
+  notify: Reload Prometheus
+
+# Dashboards are re-read by Grafana every 30 seconds (provisioning/dashboards/lab.yml);
+# data sources only at start
+- name: Grafana's provisioning
+  ansible.builtin.copy:
+    src: grafana/provisioning/
+    dest: /etc/lab-monitoring/grafana/provisioning/
+    mode: "0644"
+    directory_mode: "0755"
+  notify: Restart Grafana
+
+- name: Grafana's dashboards
+  ansible.builtin.copy:
+    src: grafana/dashboards/
+    dest: /etc/lab-monitoring/grafana/dashboards/
+    mode: "0644"
+    directory_mode: "0755"
+
+- name: Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: /etc/lab-monitoring/compose.yml
+    mode: "0644"
+
+# lab-metrics writes the workstation targets before Prometheus first starts, so its
+# first scrape already has them
+- name: The lab-metrics script
+  ansible.builtin.copy:
+    src: lab-metrics
+    dest: /usr/local/libexec/lab-metrics
+    mode: "0755"
+
+- name: Units for lab-metrics
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-metrics.service, lab-metrics.timer]
+  register: metrics_units
+
+- name: Run lab-metrics every 30 seconds
+  ansible.builtin.systemd_service:
+    name: lab-metrics.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ metrics_units.changed }}"
+
+- name: Monitoring running
+  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml up -d --remove-orphans
+  register: monitoring_up
+  changed_when: "'Started' in monitoring_up.stderr or 'Created' in monitoring_up.stderr"
+
+# The first layout mounted single files, which go stale when Ansible replaces them
+# (compose.yml.j2 explains)
+- name: Retire the single-file layout
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/lab-monitoring/prometheus.yml
+    - /etc/lab-monitoring/alerts.yml
+    - /etc/lab-monitoring/blackbox.yml
+    - /etc/lab-monitoring/targets
