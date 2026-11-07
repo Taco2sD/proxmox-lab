@@ -81,9 +81,11 @@ dialog ul.what { margin:6px 0 14px; padding-left:20px; color:var(--muted); font-
 const STATUS = { building: "Creating", ready: "Ready", failed: "Failed", removing: "Deleting",
                  stopped: "Stopped", pending: "Waiting to be built" };
 let ROLE = {}, STEPS = {}, PHASES = [];                        // from /api/admin/machines
+// What's happening while a removal waits for each step (the step's name is what it
+// records once it has happened: worker.py and lab, lablib.REMOVAL_STEPS)
 const STEP_LABEL = {
-  queued: "Deletion requested", committed: "Removal committed to git", released: "Change passed the checks",
-  destroying: "Destroying the VM", destroyed: "VM and disk removed",
+  queued: "Starting", committed: "Committing the removal to git", released: "Waiting for the checks to pass",
+  destroying: "Waiting to destroy the VM", destroyed: "Destroying the VM and its disk",
   cleaning: "Removing AD accounts, DHCP lease, DNS records and join password",
 };
 
@@ -230,7 +232,7 @@ function render() {
       el("div", { class: "right" },
         n ? el("button", { class: "ghost", onclick: () => { selected.clear(); render(); } }, "Clear") : null,
         el("button", { class: "danger", disabled: !n, onclick: confirmDelete }, n ? `Delete ${plural(n, "workstation")}…` : "Delete…"))),
-    activityTable());
+    ...activityTable());
   if (focused) document.querySelector(`[data-host="${CSS.escape(focused)}"]`)?.focus();
   return busy;
 }
@@ -239,8 +241,8 @@ function render() {
 const KIND = { "guest-create": "Build guest", "guest-delete": "Delete guest", "fleet-delete": "Delete fleet machines",
                "fleet-apply": "Apply fleet", reimage: "Reimage", "image-build": "Build golden image",
                reconcile: "Reconcile", deploy: "Deploy servers" };
-function activityTable() {
-  if (!ops.length) return null;
+function activityTable() {          // a list of elements (none without operations)
+  if (!ops.length) return [];
   return [el("h2", { class: "section" }, "Activity"),
     el("div", { class: "card table-wrap activity" }, el("table", {},
       el("thead", {}, el("tr", {}, ["When", "What", "Machines", "By", "Result"].map(h => el("th", {}, h)))),
