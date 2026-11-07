@@ -13,6 +13,7 @@ Open it from the admin page (**Monitoring**) or from a machine in My lab (**Metr
 | `/grafana/d/lab-machine?var-host=ws35` | **Machine**: one server or workstation in detail, inside (node_exporter) and out (Proxmox) |
 | `/prometheus/alerts` | Every alert rule and its state |
 | `/prometheus/targets`, `/prometheus/service-discovery` | What Prometheus scrapes right now, and where that list came from |
+| [docs/kb/](kb/README.md) | The knowledge base: a runbook per alert, every issue found and how it was fixed (both dashboards link to it) |
 
 Anyone past the portal's sign-in gate can look; nobody can edit in Grafana. The
 dashboards are JSON in git, deployed like everything else.
@@ -55,8 +56,22 @@ hibernated, and in Proxmox's view of the VMs.
 (targets down, failed probes, failed systemd units), capacity (disks, memory, the
 storage pool, the portal's memory budget), correctness (certificates, clock skew,
 pending security updates, reboots) and the lab's automation (workstations that stopped
-checking in, the reconciler, failed operations, the tunnel). Each says what and where,
-and what to look at first.
+checking in, the reconciler, failed operations nobody has put right, the tunnel). Each
+says what and where, and what to look at first, and links its runbook
+(`runbook_url`: docs/kb/runbooks/, one page per rule: what it means, the first five
+minutes, known causes, and the issues it has caught before). A new rule needs its
+runbook in the same commit; `tools/kb.py check` (part of `tools/check`) fails without it.
+
+Two design rules came out of the first day's alerts (both in the knowledge base):
+
+- **Alert on state, not history.** "Operations failed in the last 24 hours" kept firing
+  for failures already put right (KB-0006). `OperationFailureUnresolved` fires only while
+  the latest operation on a subject (a machine, an image kind, the release) is a failure;
+  a later success on the same subject clears it. An operation stopped by hand counts as
+  failed: what it was doing didn't get done.
+- **One alert per thing someone fixes.** A failed-unit alert per unit turned one leaking
+  template unit into ~1,700 alerts (KB-0007); `SystemdUnitsFailed` is one alert per
+  machine with a count, and the Machine dashboard lists the units.
 
 There's no Alertmanager: firing alerts show on the Lab overview and on Prometheus's
 alerts page. In production, Alertmanager would route them to the on-call channel, group
@@ -67,7 +82,7 @@ related ones and handle silences during maintenance.
 | To change | Edit | Takes effect |
 |---|---|---|
 | A dashboard | `ansible/roles/monitoring/files/grafana/dashboards/*.json` (Grafana's UI can't save: export the JSON from a copy, commit) | Grafana re-reads within 30 s |
-| An alert rule | `files/alerts.yml` | Prometheus reloads (SIGHUP), no restart |
+| An alert rule | `files/alerts.yml`, and its runbook in `docs/kb/runbooks/` | Prometheus reloads (SIGHUP), no restart |
 | A scrape job or probe | `templates/prometheus.yml.j2`, `templates/blackbox.yml.j2` | Same |
 | A version | `templates/compose.yml.j2` (tag and digest) | Container recreated |
 

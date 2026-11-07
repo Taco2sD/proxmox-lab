@@ -77,6 +77,13 @@
    "type": "link",
    "url": "/grafana/d/lab-overview/lab-overview",
    "icon": "dashboard"
+  },
+  {
+   "title": "Knowledge base",
+   "type": "link",
+   "url": "https://github.com/Taco2sD/proxmox-lab/tree/main/docs/kb",
+   "icon": "doc",
+   "targetBlank": true
   }
  ],
  "panels": [

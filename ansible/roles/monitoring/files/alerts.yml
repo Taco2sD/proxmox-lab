@@ -4,6 +4,10 @@
 # https://lab.radicallydecent.com/prometheus/alerts. No Alertmanager yet: in production,
 # it would route these to the on-call channel, group them and handle silences.
 #
+# Every rule has a runbook: docs/kb/runbooks/<AlertName>.md (its runbook_url), with what
+# it means, the first five minutes, known causes and the issues it has caught before
+# (docs/kb/README.md). tools/kb.py checks that each rule has one.
+#
 # Rules of thumb used here:
 #   - alert on what someone would have to act on, not on every wobble: "for:" makes a
 #     condition last before it fires
@@ -22,6 +26,7 @@ groups:
         labels:
           severity: critical
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/TargetDown.md
           summary: "{{ $labels.host }} isn't answering Prometheus ({{ $labels.job }})"
           description: >-
             No metrics for 3 minutes. Check the VM's console in Proxmox, then `systemctl status prometheus-node-exporter`
@@ -33,6 +38,7 @@ groups:
         labels:
           severity: critical
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/ServiceProbeFailed.md
           summary: "{{ $labels.probe }} is failing its check"
           description: >-
             blackbox can't reach {{ $labels.instance }} ({{ $labels.module }}). Try it by hand:
@@ -47,6 +53,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/SystemdUnitsFailed.md
           summary: "{{ $value }} systemd unit(s) failed on {{ $labels.host }}"
           description: >-
             `systemctl --failed` on {{ $labels.host }}, then `journalctl -u <unit> -b`. Once fixed, `systemctl
@@ -57,6 +64,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/ServiceRestartLoop.md
           summary: "{{ $labels.name }} on {{ $labels.host }} keeps restarting"
           description: "{{ $value | humanize }} restarts in 15 minutes: systemd is hiding a crash loop. Read its journal."
 
@@ -70,6 +78,7 @@ groups:
         labels:
           severity: critical
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/DiskAlmostFull.md
           summary: "{{ $labels.mountpoint }} on {{ $labels.host }} is over 90% full"
           description: "`du -xh --max-depth=2 {{ $labels.mountpoint }} | sort -h | tail` on {{ $labels.host }}."
 
@@ -82,6 +91,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/DiskFillingUp.md
           summary: "{{ $labels.mountpoint }} on {{ $labels.host }} will be full within a day at this rate"
           description: "Something is writing steadily: logs, a runaway cache, Prometheus's own data."
 
@@ -91,6 +101,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/MemoryLow.md
           summary: "{{ $labels.host }} has under 8% of its memory available"
           description: "`ps aux --sort=-rss | head` on {{ $labels.host }}; on pve01, check the VMs' memory on the Lab overview."
 
@@ -102,6 +113,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/StoragePoolAlmostFull.md
           summary: "Proxmox storage {{ $labels.id }} is over 85% used"
           description: >-
             Thin pools stop every VM writing to them when they fill. Remove old images or snapshots, or grow the pool.
@@ -113,6 +125,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/GuestMemoryBudgetNearlyUsed.md
           summary: "The lab's workstation memory budget is {{ $value | humanizePercentage }} used"
           description: "New workstation requests will soon be refused. Delete unused machines on the admin page."
 
@@ -125,6 +138,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/CertificateExpiresSoon.md
           summary: "The certificate for {{ $labels.probe }} expires in {{ $value | humanizeDuration }}"
           description: "Renewal isn't working. `certbot renew --dry-run` on the machine that serves it."
 
@@ -136,6 +150,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/ClockSkew.md
           summary: "{{ $labels.host }}'s clock is {{ $value | humanizeDuration }} off"
           description: "`chronyc tracking` and `chronyc sources -v` on {{ $labels.host }}."
 
@@ -145,6 +160,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/SecurityUpdatesPending.md
           summary: "{{ $labels.host }} has had {{ $value }} security updates waiting for a day"
           description: "`apt list --upgradable` on {{ $labels.host }}."
 
@@ -154,6 +170,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/RebootRequired.md
           summary: "{{ $labels.host }} has needed a reboot for a day (updated kernel or libraries)"
           description: "Reboot it in a quiet moment (staff machines: hibernate doesn't count)."
 
@@ -171,15 +188,26 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/WorkstationNotCheckingIn.md
           summary: "{{ $labels.host }} hasn't finished a configuration run for {{ $value | humanizeDuration }}"
           description: "`journalctl -u ansible-pull -n 100` on {{ $labels.host }}."
 
       - alert: ReconcilerStopped
-        # lab-reconcile.timer starts the reconciler every minute (roles/runner)
-        expr: time() - node_systemd_timer_last_trigger_seconds{host="mgmt01",name="lab-reconcile.timer"} > 300
+        # lab-reconcile.timer starts the reconciler a minute after the last run ended
+        # (OnUnitInactiveSec, roles/runner), so it doesn't trigger while a run is going: a
+        # long deploy isn't a stop. One running for over an hour is (stuck), so it alerts.
+        expr: |
+          (time() - node_systemd_timer_last_trigger_seconds{host="mgmt01",name="lab-reconcile.timer"} > 300)
+            unless on ()
+          (
+            node_systemd_unit_state{host="mgmt01",name="lab-reconcile.service",state="active"} == 1
+              and on ()
+            time() - node_systemd_unit_start_time_seconds{host="mgmt01",name="lab-reconcile.service"} < 3600
+          )
         labels:
           severity: critical
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/ReconcilerStopped.md
           summary: "The reconciler hasn't run for {{ $value | humanizeDuration }}"
           description: >-
             Changes merged to the release branch aren't being applied. `systemctl status lab-reconcile.timer` on mgmt01.
@@ -190,6 +218,7 @@ groups:
         labels:
           severity: critical
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/ReleaseFailedToApply.md
           summary: "The reconciler couldn't apply the latest release"
           description: "`lab status` on mgmt01; the failed run is an operation on the admin page, with its log."
 
@@ -199,6 +228,7 @@ groups:
         labels:
           severity: warning
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/ReconcilerPaused.md
           summary: "The reconciler has been paused for over 4 hours"
           description: "Someone touched /var/lib/lab/reconcile.paused and may have forgotten it (docs/operations.md)."
 
@@ -209,16 +239,24 @@ groups:
         labels:
           severity: critical
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/PortalWorkerStale.md
           summary: "The portal's worker hasn't checked on the machines for {{ $value | humanizeDuration }}"
           description: "`systemctl status lab-portal-worker` and /var/log/lab-portal/ on mgmt01."
 
-      - alert: OperationsFailing
-        expr: lab_operations_failed_24h > 2
+      - alert: OperationFailureUnresolved
+        # A failed operation (lab: build, delete, reimage, image build, reconcile) that nothing
+        # has put right: no later success on the same machine, image kind or release
+        # (lab-metrics: unresolved_failures). Failures that were followed by a success don't
+        # fire, however recent; a failure on one machine isn't hidden by a success on another.
+        expr: lab_operation_unresolved_failure_timestamp_seconds > 0
         labels:
           severity: warning
         annotations:
-          summary: "{{ $value }} lab operations failed in the last day"
-          description: "The admin page's Activity lists them, each with its log."
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/OperationFailureUnresolved.md
+          summary: "{{ $labels.kind }} for {{ $labels.subject }} failed, and hasn't worked since"
+          description: >-
+            Operation {{ $labels.op }}: its log is /var/log/lab/{{ $labels.op }}.log on mgmt01, and the admin page's
+            Activity shows it. Fix the cause, then run it again; the alert clears when it succeeds.
 
       - alert: TunnelDown
         # The internet's only way in (roles/portal_relay); handshakes renew every 2 minutes
@@ -227,5 +265,6 @@ groups:
         labels:
           severity: critical
         annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/TunnelDown.md
           summary: "The WireGuard tunnel to the VPS has been quiet for {{ $value | humanizeDuration }}"
           description: "lab.radicallydecent.com is unreachable from the internet. `wg show` on pve01; is the VPS up?"

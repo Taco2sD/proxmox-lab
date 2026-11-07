@@ -91,6 +91,13 @@
    ],
    "asDropdown": true,
    "includeVars": false
+  },
+  {
+   "title": "Knowledge base",
+   "type": "link",
+   "url": "https://github.com/Taco2sD/proxmox-lab/tree/main/docs/kb",
+   "icon": "doc",
+   "targetBlank": true
   }
  ],
  "panels": [
@@ -1369,7 +1376,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "max by (host) (time() - lab_workstation_last_configured_timestamp_seconds)",
+     "expr": "max by (host) (time() - lab_workstation_last_configured_timestamp_seconds) and on (host) lab_workstation_info{power=\"running\"}",
      "refId": "E",
      "legendFormat": "__auto",
      "instant": true,
@@ -1632,6 +1639,22 @@
         "value": 0
        },
        {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "special",
+          "options": {
+           "match": "null",
+           "result": {
+            "text": "asleep",
+            "color": "#8e8e8e",
+            "index": 0
+           }
+          }
+         }
+        ]
+       },
+       {
         "id": "thresholds",
         "value": {
          "mode": "absolute",
@@ -1678,6 +1701,102 @@
      {
       "matcher": {
        "id": "byName",
+       "options": "Owner"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 110
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Role"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 100
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Kind"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 95
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Address"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 115
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "VM"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 60
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Machine"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 90
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Updates"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 85
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Failed units"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 105
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
        "options": "Power"
       },
       "properties": [
@@ -1686,6 +1805,10 @@
         "value": {
          "type": "color-text"
         }
+       },
+       {
+        "id": "custom.width",
+        "value": 105
        },
        {
         "id": "mappings",
@@ -2603,7 +2726,7 @@
    "id": 32,
    "type": "stat",
    "title": "Operations, last 24 h",
-   "description": "Builds, deletes, image builds and deploys (`lab`), by outcome. The admin page's Activity has each one.",
+   "description": "Builds, deletes, image builds and deploys (`lab`), by outcome. Unresolved: failures with no later success on the same machine, image or release (alert OperationFailureUnresolved). The admin page's Activity has each one.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2623,6 +2746,15 @@
      "expr": "lab_operations_24h",
      "refId": "A",
      "legendFormat": "{{state}}"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_operations_unresolved",
+     "refId": "B",
+     "legendFormat": "unresolved"
     }
    ],
    "fieldConfig": {
@@ -2643,7 +2775,7 @@
         "id": "color",
         "value": {
          "mode": "fixed",
-         "fixedColor": "red"
+         "fixedColor": "#8e8e8e"
         }
        }
       ]
@@ -2659,6 +2791,36 @@
         "value": {
          "mode": "fixed",
          "fixedColor": "green"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "unresolved"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "thresholds"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "red",
+           "value": 1
+          }
+         ]
         }
        }
       ]
