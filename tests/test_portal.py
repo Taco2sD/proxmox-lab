@@ -86,6 +86,8 @@ class GuacamoleLogin(unittest.TestCase):
         vnc = open_login(with_password=False, console={"hostname": "10.10.10.10", "port": "5900", "password": "t1ck3t"})
         self.assertEqual((vnc["protocol"], vnc["parameters"]["port"], vnc["parameters"]["password"]),
                          ("vnc", "5900", "t1ck3t"))
+        # guacd 1.6.0 drops the connection when the guest changes resolution if it negotiates size
+        self.assertEqual(vnc["parameters"]["disable-display-resize"], "true")
 
 
 if __name__ == "__main__":

@@ -274,11 +274,14 @@ def all_workstations():
         state = ("ready" if vm and vm["status"] == "running" else
                  "stopped" if vm else "pending")      # pending: the reconciler hasn't built it yet
         rows[host] = {"host": host, "kind": "fleet", "owner": None, "role": spec["role"], "ip": str(spec["ip"]),
-                      "vmid": spec["vmid"], "state": state, "error": None, "phases": {}, "removal": None}
+                      "vmid": spec["vmid"], "state": state, "error": None, "phases": {}, "removal": None,
+                      "power": vm["power"] if vm else None}
     for host, r in L.guests().items():
+        vm = vms.get(str(r.get("vmid")))
         rows[host] = {"host": host, "kind": "guest", "owner": r.get("owner"), "role": r.get("role"),
                       "ip": r.get("ip"), "vmid": r.get("vmid"), "state": r.get("state"), "error": r.get("error"),
-                      "phases": r.get("phases", {}), "removal": r.get("removal")}
+                      "phases": r.get("phases", {}), "removal": r.get("removal"),
+                      "power": vm["power"] if vm else None}
     for host, op in active.items():
         if host in rows:
             rows[host].update(state="removing", removal={"queued": op["created"], **op["steps"]})
@@ -547,6 +550,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(409, {"error": f"Already being deleted: {', '.join(busy)}."})
             request({"action": "delete", "hosts": hosts, "admin": admin})
             print(f"admin {admin} deletes {', '.join(hosts)}", flush=True)
+            return self.send(200, {"ok": True, "hosts": hosts})
+        if path == "/api/admin/configure":
+            if (bad := [h for h in hosts if h in L.INFRA or h not in known]):
+                return self.send(404, {"error": f"Not a workstation: {', '.join(bad)}."})
+            if (off := [h for h in hosts if known[h]["power"] != "running" or known[h]["state"] == "removing"]):
+                return self.send(409, {"error": f"Not running: {', '.join(off)}. Only a running machine can be configured."})
+            request({"action": "configure", "hosts": hosts, "admin": admin})
+            print(f"admin {admin} configures {', '.join(hosts)}", flush=True)
             return self.send(200, {"ok": True, "hosts": hosts})
         if path == "/api/admin/approve":
             pending = set((L.read_json(L.RECONCILE) or {}).get("pending_destroys", []))

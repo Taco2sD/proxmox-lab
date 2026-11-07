@@ -166,6 +166,29 @@ def power(host, action, actor):
     threading.Thread(target=run, daemon=True).start()
 
 
+def configure(hosts, actor):
+    """Start a configuration run on each machine now rather than at its next timer
+    (roles/base: ansible-pull.service, every pull_interval), through the guest agent.
+    Only starts it: the machine reports back as after any run (local.yml: lab-events
+    /configured), which the admin page shows as Last activity."""
+    vmids = {h: s["vmid"] for h, s in L.fleet().items()} | {h: r.get("vmid") for h, r in L.guests().items()}
+
+    def run():
+        px = L.Proxmox()
+        for host in hosts:
+            if host in L.INFRA or not vmids.get(host):
+                log(f"refused to configure {host}: not a workstation")
+                continue
+            try:
+                px.run_in_guest(vmids[host], ["systemctl", "start", "--no-block", "ansible-pull.service"])
+            except Exception as e:                  # noqa: BLE001
+                log(f"{host}: couldn't start a configuration run: {e}")
+                continue
+            L.audit("configure", host=host, by=actor)
+            log(f"{host}: configuration run started by {actor}")
+    threading.Thread(target=run, daemon=True).start()
+
+
 def hibernate_idle():
     """Staff machines nobody has had a session on for idle_hibernate_minutes go to
     sleep (hibernate: suspended to disk, so they resume exactly where they were and
@@ -262,6 +285,8 @@ def handle(req):
         doomed = [h for h in req.get("hosts", []) if h in fleet and h not in L.INFRA]
         if doomed:
             launch(L.new_op("fleet-delete", actor, doomed))
+    elif action == "configure" and req.get("admin"):     # an admin: a configuration run now
+        configure(req.get("hosts", []), f"admin {req['admin']}")
     elif action == "approve" and req.get("admin"):       # approve destroys the reconciler found
         for host in req.get("hosts", []):
             if host not in L.INFRA:

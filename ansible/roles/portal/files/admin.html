@@ -8,6 +8,9 @@
        workstations and never appear. Tick machines, then "Delete": a warning lists
        each one. Guests are removed by `lab guest delete`; fleet machines by a commit
        to main that the reconciler applies once CI passes (docs/self-service.md).
+       "Run configuration" starts a configuration run (ansible-pull) on the ticked
+       running machines now instead of at their next timer (worker.py: configure); the
+       row says Configuring until the machine reports the run finished.
      - Approvals: destroys the reconciler found in a commit made outside this page
        wait for an admin's yes here.
      - Activity: every operation `lab` ran, newest first (/var/lib/lab/ops).
@@ -111,7 +114,9 @@ function showLogin(message = "") {
 }
 
 // ---------------------------------------------------------------- state from the server
-const selected = new Set();     // hosts ticked for deletion
+const selected = new Set();     // hosts ticked for deletion or a configuration run
+const configuring = {};         // host -> when a configuration run was started from here
+const CONFIGURE_TIMEOUT = 15 * 60;
 const batches = [];             // deletions started here: { hosts, done: [], failed: [] }
 const notices = [];             // banners: { kind: "ok" | "err" | "info", text }
 let machines = [], pending = [], ops = [];
@@ -145,6 +150,17 @@ async function showMachines(user) {
       batches.splice(batches.indexOf(b), 1);
     }
   }
+  // Configuration runs started here: done when the machine reports one finished since
+  const finished = [], silent = [];
+  for (const [h, t] of Object.entries(configuring)) {
+    const m = byHost[h];
+    if (m?.checkin > t) finished.push(h);
+    else if (!m || Date.now() / 1000 - t > CONFIGURE_TIMEOUT) silent.push(h);
+    else continue;
+    delete configuring[h];
+  }
+  if (finished.length) notice("ok", `Configured ${list(finished)}.`);
+  if (silent.length) notice("err", `${list(silent)} didn't report a finished configuration run within ${CONFIGURE_TIMEOUT / 60} minutes.`);
   for (const h of [...selected]) if (!byHost[h] || !selectable(byHost[h])) selected.delete(h);
   const busy = render();
   timer = setTimeout(showMachines, busy ? 2000 : 10000);
@@ -175,6 +191,8 @@ function statusCell(m) {
 }
 
 function lastActivity(m) {
+  if (configuring[m.host]) return [el("span", { class: "status building" }, "Configuring"),
+                                   el("div", { class: "detail" }, `started ${ago(configuring[m.host])}`)];
   const ph = Object.entries(m.phases || {}).sort((a, b) => b[1] - a[1]);
   if (m.state === "building" && ph.length) return [Object.fromEntries(PHASES)[ph[0][0]] || ph[0][0], el("div", { class: "detail" }, ago(ph[0][1]))];
   if (m.checkin) return ["Configured", el("div", { class: "detail" }, ago(m.checkin))];
@@ -203,6 +221,7 @@ function render() {
       el("td", { class: "muted small" }, lastActivity(m)));
   });
   const busy = machines.some(m => ["building", "removing", "pending"].includes(m.state)) || batches.length > 0
+             || Object.keys(configuring).length > 0
              || ops.some(o => ["queued", "running"].includes(o.state));
   const head = el("input", { type: "checkbox", "data-host": "*", "aria-label": "Select all", checked: all,
                              indeterminate: some && !all, disabled: !pickable.length,
@@ -228,9 +247,11 @@ function render() {
           el("tbody", {}, rows))
       : el("div", { class: "empty" }, "No workstations.")),
     el("div", { class: "card actions" },
-      el("span", { class: n ? "" : "muted", style: n ? "font-weight:600" : "" }, n ? `${plural(n, "workstation")} selected` : "Tick workstations to delete them."),
+      el("span", { class: n ? "" : "muted", style: n ? "font-weight:600" : "" }, n ? `${plural(n, "workstation")} selected` : "Tick workstations to configure or delete them."),
       el("div", { class: "right" },
         n ? el("button", { class: "ghost", onclick: () => { selected.clear(); render(); } }, "Clear") : null,
+        el("button", { class: "ghost", disabled: !n, onclick: configureSelected,
+                       title: "Apply the configuration from git now, rather than at the next scheduled run" }, "Run configuration"),
         el("button", { class: "danger", disabled: !n, onclick: confirmDelete }, n ? `Delete ${plural(n, "workstation")}…` : "Delete…"))),
     ...activityTable());
   if (focused) document.querySelector(`[data-host="${CSS.escape(focused)}"]`)?.focus();
@@ -265,7 +286,23 @@ function result(o) {
   return el("span", { class: "status " + cls }, text);
 }
 
-// ---------------------------------------------------------------- delete and approve
+// ---------------------------------------------------------------- configure, delete, approve
+async function configureSelected() {
+  const hosts = machines.filter(m => selected.has(m.host)).map(m => m.host);
+  const off = machines.filter(m => selected.has(m.host) && m.power !== "running").map(m => m.host);
+  if (off.length) return notice("err", `Not running: ${list(off)}. Only a running machine can be configured.`), render();
+  const r = await api("/api/admin/configure", { body: { hosts }, admin: true });
+  if (r.status === 403) return showLogin("Your session ended. Sign in again.");
+  if (r.ok) {
+    const now = Date.now() / 1000;
+    for (const h of hosts) { configuring[h] = now; selected.delete(h); }
+    notice("info", `Configuring ${list(hosts)}. A run takes a minute or two; ${hosts.length === 1 ? "its row says" : "their rows say"} when it's done.`);
+  } else {
+    notice("err", `Couldn't start configuring: ${r.data.error || "unknown error"}`);
+  }
+  showMachines();
+}
+
 let targets = [];
 function confirmDelete() {
   targets = machines.filter(m => selected.has(m.host) && selectable(m));

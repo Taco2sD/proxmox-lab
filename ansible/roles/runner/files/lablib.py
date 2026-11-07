@@ -589,7 +589,8 @@ class Proxmox:
         self.node = settings()["pve_node"]
 
     def call(self, method, path, data=None):
-        body = urllib.parse.urlencode(data or {}).encode() if data is not None else None
+        # doseq: a list is a repeated field, as Proxmox takes arrays (agent/exec's command)
+        body = urllib.parse.urlencode(data or {}, doseq=True).encode() if data is not None else None
         req = urllib.request.Request(self.base + path, data=body, method=method,
                                      headers={"Authorization": self.auth})
         with urllib.request.urlopen(req, context=self.ctx, timeout=30) as r:
@@ -629,6 +630,11 @@ class Proxmox:
     # back exactly where it was. Shutdown asks the guest (ACPI, the guest agent) nicely.
     POWER = {"start": ("start", {}), "shutdown": ("shutdown", {"timeout": "120"}),
              "reboot": ("reboot", {}), "hibernate": ("suspend", {"todisk": "1"})}
+
+    def run_in_guest(self, vmid, command):
+        """Start a command inside a running VM through the QEMU guest agent (the token's
+        VM.GuestAgent.Unrestricted). Not waited for: returns the guest's process id."""
+        return self.call("POST", f"/nodes/{self.node}/qemu/{int(vmid)}/agent/exec", {"command": list(command)})
 
     def power(self, vmid, action, wait=True):
         what, data = self.POWER[action]

@@ -32,6 +32,13 @@ page's Activity list), a full log in `/var/log/lab/<id>.log`, and lines in
    minutes it applies anyway, which repairs drift.
 4. Workstations pull `stable` every 30 minutes (`ansible-pull`).
 
+**Configuring a workstation now** instead of waiting for its next pull: on the admin
+page, tick the machines and click "Run configuration". The row says Configuring until
+the machine reports the run finished. By hand, the same thing through the guest agent
+on pve01 (`qm guest exec <vmid> -- systemctl start --no-block ansible-pull.service`), or
+`sudo systemctl start ansible-pull` on the machine itself; its log is
+`journalctl -u ansible-pull`.
+
 So a commit that fails its checks never reaches the lab. To see where things stand:
 `journalctl -u lab-reconcile -n 50`, or the admin page's Activity list.
 
