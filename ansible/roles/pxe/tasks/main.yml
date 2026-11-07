@@ -17,9 +17,13 @@
 - name: Packages of the desktop roles (catalog/*.yml with kind desktop), for the desktop image
   ansible.builtin.set_fact:
     pxe_desktop_role_packages: >-
-      {{ query('ansible.builtin.fileglob', playbook_dir ~ '/../catalog/*.yml')
-         | map('ansible.builtin.file') | map('from_yaml') | selectattr('kind', 'equalto', 'desktop')
-         | map(attribute='packages') | flatten | unique | sort }}
+      {{ (pxe_desktop_role_packages | default([])
+          + (pxe_role.packages if pxe_role.kind == 'desktop' else [])) | unique | sort }}
+  loop: "{{ query('ansible.builtin.fileglob', playbook_dir ~ '/../catalog/*.yml') }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  vars:
+    pxe_role: "{{ lookup('ansible.builtin.file', item) | from_yaml }}"
 
 - name: Install record directories, one per image kind
   ansible.builtin.file:
