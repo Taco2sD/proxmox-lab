@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""/usr/local/sbin/lab-console on pve01 (roles/pve_console): one connection to a guest
+machine's screen, started by lab-console.socket (one per connection). The port it came
+in on says which VM: port - console_port_base. It then runs Proxmox's own console relay,
+`qm vncproxy` (what the Proxmox UI's console runs too), which sets the VM's VNC password
+to LC_PVE_TICKET (the shared secret, /etc/lab/console.env) and joins this connection to
+the VM's VNC socket."""
+import os
+import socket
+import sys
+
+BASE, LOW, HIGH = (int(x) for x in sys.argv[1:4])     # console_port_base, guest_vmids
+s = socket.socket(fileno=0)
+port = s.getsockname()[1]
+s.detach()                                            # fd 0 stays open for qm
+vmid = port - BASE
+if not LOW <= vmid <= HIGH or not os.path.exists(f"/etc/pve/qemu-server/{vmid}.conf"):
+    sys.exit(f"lab-console: no guest machine behind port {port}")
+os.execv("/usr/sbin/qm", ["qm", "vncproxy", str(vmid)])

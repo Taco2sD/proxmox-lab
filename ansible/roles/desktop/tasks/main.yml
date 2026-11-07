@@ -2,8 +2,8 @@
 # (included by roles/workstation_role): Ubuntu's own GNOME desktop and login screen
 # (GDM), as on any Ubuntu PC. People sign in at that login screen with their AD account
 # (SSSD; only the machine's owner and the admins may). They reach it as the machine's
-# own screen: in the browser (My lab: Desktop, a one-time Proxmox console ticket opened
-# by Guacamole; roles/pve_console) or in the Proxmox UI. No remote-desktop server runs
+# own screen: in the browser (My lab: Desktop, pve01's console relay opened by
+# Guacamole; roles/pve_console) or in the Proxmox UI. No remote-desktop server runs
 # inside the VM. Headless machines (kind: headless) never get any of this.
 
 # Already in the desktop image (ansible/group_vars/all.yml: desktop_packages); this
@@ -62,6 +62,74 @@
     dest: /etc/xdg/monitors.xml
     mode: "0644"
   notify: Restart the login screen
+
+# The screen never blanks and the machine never suspends itself. People see it as its
+# own screen (My lab's Desktop: the VM console through Guacamole); a blanked display
+# shows them black, and waking it changes the console's mode under the connection.
+# Sleeping is Proxmox's job, from outside: idle machines hibernate (worker.py:
+# hibernate_idle), so the guest's own suspend is switched off entirely.
+- name: The login screen never suspends the machine
+  ansible.builtin.lineinfile:
+    path: /etc/gdm3/greeter.dconf-defaults
+    regexp: "^#? *{{ item }}="
+    line: "{{ item }}='nothing'"
+    insertafter: '^\[org/gnome/settings-daemon/plugins/power\]'
+  loop: [sleep-inactive-ac-type, sleep-inactive-battery-type]
+  notify: Restart the login screen
+
+- name: The login screen never blanks
+  ansible.builtin.blockinfile:
+    path: /etc/gdm3/greeter.dconf-defaults
+    marker: "# {mark} roles/desktop: never blank"
+    block: |
+      [org/gnome/desktop/session]
+      idle-delay=uint32 0
+  notify: Restart the login screen
+
+- name: Sessions read the lab's settings (dconf system database "local")
+  ansible.builtin.copy:
+    dest: /etc/dconf/profile/user
+    content: |
+      user-db:user
+      system-db:local
+    mode: "0644"
+  notify: Update dconf
+
+- name: Directory for the lab's session settings
+  ansible.builtin.file:
+    path: /etc/dconf/db/local.d/locks
+    state: directory
+    mode: "0755"
+
+- name: Sessions never blank or suspend, and people can't turn that back on
+  ansible.builtin.copy:
+    dest: "/etc/dconf/db/local.d/{{ item.dest }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - dest: 00-lab-desktop
+      content: |
+        # roles/desktop: the screen is the VM console people use from the browser
+        [org/gnome/desktop/session]
+        idle-delay=uint32 0
+        [org/gnome/settings-daemon/plugins/power]
+        sleep-inactive-ac-type='nothing'
+        sleep-inactive-battery-type='nothing'
+        idle-dim=false
+    - dest: locks/00-lab-desktop
+      content: |
+        /org/gnome/desktop/session/idle-delay
+        /org/gnome/settings-daemon/plugins/power/sleep-inactive-ac-type
+        /org/gnome/settings-daemon/plugins/power/sleep-inactive-battery-type
+  loop_control:
+    label: "{{ item.dest }}"
+  notify: Update dconf
+
+- name: The guest itself can't sleep (nothing may suspend it from inside)
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    masked: true
+  loop: [sleep.target, suspend.target, hibernate.target, hybrid-sleep.target, suspend-then-hibernate.target]
 
 - name: Boot to the login screen
   ansible.builtin.file:

@@ -1,55 +1,67 @@
-# pve01: a Proxmox API token for the portal (mgmt01) that can open VM consoles and do
-# nothing else. My lab's Desktop button opens a workstation's own screen (the Ubuntu
-# login, then the GNOME desktop) in the browser: the portal asks Proxmox for a one-time
-# VNC ticket (vncproxy, generate-password) and hands it to Guacamole, which connects to
-# pve01 within seconds. The portal checks that the person owns the machine first.
+# pve01: the guest machines' screens for My lab's Desktop button. Guacamole (mgmt01)
+# connects to pve01 port console_port_base + VM ID; lab-console.socket accepts only
+# mgmt01's address and hands each connection to Proxmox's own console relay
+# (`qm vncproxy`, as the Proxmox UI's console does), with a shared secret as the VNC
+# password. The portal checks that the person owns the machine before it hands
+# Guacamole a connection (portal.py: console_ticket).
 #
-# Least privilege: role LabConsole = VM.Console only. OpenTofu's token (root-only on
-# mgmt01) stays where it is; the web side never sees it.
-# The secret is only shown when the token is created: it goes straight to mgmt01
-# (/etc/lab-portal/console-token, readable by the portal's user only).
+# Why not Proxmox's one-time console tickets (the API's vncproxy)? A ticket works once,
+# within seconds: Guacamole's Reconnect, and its automatic reconnect after a dropped
+# connection, replayed a spent ticket and could never work. A fixed address and secret
+# reconnect like any VNC server.
+#
+# The secret: generated on pve01 (/etc/lab/console.env, root only), copied to mgmt01
+# (/etc/lab-portal/console-secret, readable by the portal's user). It is only usable from
+# mgmt01's address, and only for guest machines.
 
-- name: Role with the console privilege only
-  ansible.builtin.command: pveum role add LabConsole --privs VM.Console
-  register: console_role
-  changed_when: console_role.rc == 0
-  failed_when: console_role.rc != 0 and 'already exists' not in console_role.stderr
-
-- name: The portal's API user
-  ansible.builtin.command: >-
-    pveum user add portal@pve --comment "Lab portal - VM consoles only (roles/pve_console)"
-  register: console_user
-  changed_when: console_user.rc == 0
-  failed_when: console_user.rc != 0 and 'already exists' not in console_user.stderr
-
-- name: May open consoles of VMs
-  ansible.builtin.command: pveum acl modify /vms --users portal@pve --roles LabConsole
-  changed_when: false
-
-- name: Does mgmt01 have the token?
-  ansible.builtin.stat:
-    path: /etc/lab-portal/console-token
-  delegate_to: mgmt01
-  become: false
-  register: console_token_file
-
-- name: New token (only when mgmt01 lacks it; an old one is replaced)
+- name: Secret for the console relay (made once)
   ansible.builtin.shell: |
-    pveum user token remove portal@pve console 2>/dev/null || true
-    pveum user token add portal@pve console --privsep 0 --output-format json
-  register: console_token
-  when: not console_token_file.stat.exists
-  changed_when: true
+    set -e
+    umask 077
+    mkdir -p /etc/lab
+    test -s /etc/lab/console.env && exit 0
+    # A VNC password: 8 characters (the VNC protocol uses no more)
+    echo "LC_PVE_TICKET=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8)" > /etc/lab/console.env
+    echo created
+  args:
+    executable: /bin/bash
+  register: console_secret
+  changed_when: "'created' in console_secret.stdout"
+
+- name: Read the secret
+  ansible.builtin.slurp:
+    src: /etc/lab/console.env
+  register: console_env
   no_log: true
 
-- name: Hand the token to the portal (mgmt01)
+- name: Hand the secret to the portal (mgmt01)
   ansible.builtin.copy:
-    content: "PVEAPIToken=portal@pve!console={{ (console_token.stdout | from_json).value }}\n"
-    dest: /etc/lab-portal/console-token
+    content: "{{ (console_env.content | b64decode).split('=', 1)[1] }}"
+    dest: /etc/lab-portal/console-secret
     owner: root
     group: labportal
     mode: "0640"
   delegate_to: mgmt01
   become: false
-  when: not console_token_file.stat.exists
   no_log: true
+
+- name: Console relay program
+  ansible.builtin.copy:
+    src: lab-console
+    dest: /usr/local/sbin/lab-console
+    mode: "0755"
+
+- name: Console relay units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-console.socket, lab-console@.service]
+  notify: Restart the console relay
+
+- name: Console relay listening
+  ansible.builtin.systemd_service:
+    name: lab-console.socket
+    enabled: true
+    state: started
+    daemon_reload: true

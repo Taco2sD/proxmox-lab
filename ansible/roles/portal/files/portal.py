@@ -126,23 +126,17 @@ def public_view(r):
 JSON_KEY = Path("/etc/lab-portal/json-secret-key")   # shared with Guacamole (roles/guacamole)
 
 
-CONSOLE_TOKEN = Path("/etc/lab-portal/console-token")   # VM.Console only (roles/pve_console)
+CONSOLE_SECRET = Path("/etc/lab-portal/console-secret")   # roles/pve_console
 
 
 def console_ticket(r):
-    """A one-time VNC ticket for the machine's own screen, from Proxmox (vncproxy with
-    generate-password: an 8-character password for standard VNC clients). Proxmox
-    listens for it on pve01 for a few seconds; Guacamole connects within one or two."""
-    import ssl
-    import urllib.request
+    """Where Guacamole finds the machine's own screen: pve01's console relay, port
+    console_port_base + VM ID, with the relay's shared secret as the VNC password. Unlike
+    Proxmox's one-time console tickets, it works for every connection, so Guacamole's
+    Reconnect (and its automatic reconnect) works. Only mgmt01 can reach the relay."""
     cfg = L.settings()
-    req = urllib.request.Request(
-        f"https://{cfg['pve_fqdn']}:8006/api2/json/nodes/{cfg['pve_node']}/qemu/{int(r['vmid'])}/vncproxy",
-        data=b"generate-password=1", method="POST",
-        headers={"Authorization": CONSOLE_TOKEN.read_text().strip()})
-    with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=10) as resp:
-        t = json.load(resp)["data"]
-    return {"hostname": cfg["pve01_ip"], "port": str(t["port"]), "password": t["password"]}
+    return {"hostname": cfg["pve01_ip"], "port": str(cfg["console_port_base"] + int(r["vmid"])),
+            "password": CONSOLE_SECRET.read_text().strip()}
 
 
 def guacamole_login(r, with_password=True, console=None):
@@ -161,10 +155,9 @@ def guacamole_login(r, with_password=True, console=None):
     key = bytes.fromhex(JSON_KEY.read_text().strip())
     if console:
         name, protocol, params = f"{r['host']} desktop", "vnc", dict(console)
-        # guacd 1.6.0 drops the connection when the guest changes resolution (and the
-        # one-time ticket rules out its automatic reconnect). Without size negotiation it
-        # survives; desktops start at 1920x1080 (roles/desktop: monitors.xml), and after a
-        # resolution change, Desktop again shows the new size.
+        # guacd 1.6.0 drops the connection when the guest changes resolution if it
+        # negotiates the size. Without negotiation it survives; desktops start at
+        # 1920x1080 (roles/desktop: monitors.xml), and Desktop again shows a new size.
         params["disable-display-resize"] = "true"
     else:
         name, protocol = r["host"], "ssh"

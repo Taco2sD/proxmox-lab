@@ -233,7 +233,7 @@ async function openConsole(host, mode) {
   const w = window.open("", "_blank");
   const r = await api("/api/me/connect", { admin: true, body: { host, mode } });
   if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the console."); }
-  // Each click gets a fresh console ticket: if a desktop tab ever shows an error, Desktop again fixes it
+  // Each click opens a fresh Guacamole login; within a tab, Guacamole's Reconnect works too
   if (w) w.location = r.data.url; else location = r.data.url;
 }
 

@@ -1,0 +1,18 @@
+# /etc/systemd/system/lab-console.socket on pve01 (roles/pve_console): the guest
+# machines' screens, for Guacamole on mgmt01 only (My lab's Desktop button). Port
+# {{ console_port_base }} + VM ID; each connection starts lab-console@.service.
+[Unit]
+Description=Lab: guest machines' screens for the portal's Desktop button
+
+[Socket]
+{% for vmid in range(guest_vmids[0], guest_vmids[1] + 1) %}
+ListenStream={{ pve01_ip }}:{{ console_port_base + vmid }}
+{% endfor %}
+Accept=yes
+MaxConnections=64
+# Only mgmt01, where Guacamole runs (guacd's connections leave through its address)
+IPAddressDeny=any
+IPAddressAllow={{ mgmt01_ip }}
+
+[Install]
+WantedBy=sockets.target

@@ -51,9 +51,10 @@ A new hire's welcome email gives them their username. On `/welcome`:
 
 **Two kinds of workstation** (`catalog/<role>.yml`: `kind`). *Desktop* roles get Ubuntu
 Desktop (GNOME, roles/desktop). People sign in at its login screen with their AD account,
-and reach it as the VM's own screen: My lab's Desktop button asks Proxmox for a one-time
-console ticket (a VM.Console-only API token, roles/pve_console) and Guacamole opens it
-over VNC. No remote-desktop server runs inside the VM. (GNOME's own Remote Login was
+and reach it as the VM's own screen: My lab's Desktop button has Guacamole open it over
+VNC through pve01's console relay (roles/pve_console: Proxmox's own `qm vncproxy`, for
+mgmt01 only, with a shared secret, so Reconnect works). The screen never blanks and the
+guest never suspends itself (roles/desktop); idle machines hibernate from outside. No remote-desktop server runs inside the VM. (GNOME's own Remote Login was
 tried: it starts with an RDP server redirection, which Guacamole can't follow.) *Headless* ones
 (`devbox`: 1 vCPU, 1 GB) stay the minimal image plus the basics, reached over SSH or the
 browser terminal. Each person may have one desktop and four headless boxes

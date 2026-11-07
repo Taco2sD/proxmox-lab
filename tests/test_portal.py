@@ -82,7 +82,7 @@ class GuacamoleLogin(unittest.TestCase):
         ssh = open_login()
         self.assertEqual((ssh["protocol"], ssh["parameters"]["hostname"], ssh["parameters"]["password"]),
                          ("ssh", "10.10.10.31", "pw"))
-        # staff desktop: the VM's own screen through a Proxmox console ticket
+        # staff desktop: the VM's own screen through pve01's console relay
         vnc = open_login(with_password=False, console={"hostname": "10.10.10.10", "port": "5900", "password": "t1ck3t"})
         self.assertEqual((vnc["protocol"], vnc["parameters"]["port"], vnc["parameters"]["password"]),
                          ("vnc", "5900", "t1ck3t"))

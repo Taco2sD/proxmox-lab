@@ -1,0 +1,11 @@
+# /etc/systemd/system/lab-console@.service on pve01 (roles/pve_console): one console
+# connection from lab-console.socket, relayed by /usr/local/sbin/lab-console.
+[Unit]
+Description=Lab: a guest machine's screen for the portal
+
+[Service]
+ExecStart=/usr/local/sbin/lab-console {{ console_port_base }} {{ guest_vmids[0] }} {{ guest_vmids[1] }}
+EnvironmentFile=/etc/lab/console.env
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal

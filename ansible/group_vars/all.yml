@@ -58,6 +58,9 @@ pve_bridge: vmbr0
 # through the portal the guest range. tools/validate_inventory.py enforces all of this.
 fleet_vmids: [121, 129]
 guest_vmids: [131, 159]
+# The guest machines' screens for the portal's Desktop button (roles/pve_console): pve01
+# relays port console_port_base + VM ID to that VM's console, for mgmt01 only
+console_port_base: 6000
 # Machines in the guest range at once: visitors' (ws-<username>) and staff members'
 # (ws<NN>, from the welcome page). Admission is by memory first: a new machine must fit
 # in guest_memory_mb with all the others (catalog/<role>.yml: size.memory_mb), which
@@ -86,7 +89,7 @@ image_packages: [qemu-guest-agent, ansible-core, git, curl, vim, htop, tmux, adc
                  krb5-user, libnss-sss, libpam-sss, ldap-utils, libsasl2-modules-gssapi-mit, bind9-dnsutils]
 # The desktop itself (roles/desktop; baked into the desktop image): Ubuntu's own GNOME
 # desktop and login screen. People reach it as the VM's screen, in the browser (My lab:
-# Desktop, a Proxmox console ticket through Guacamole) or in the Proxmox UI.
+# Desktop, pve01's console relay through Guacamole) or in the Proxmox UI.
 desktop_packages: [ubuntu-desktop-minimal]
 # The temporary VM that installs the image over PXE (roles/pxe): its own MAC and
 # reserved address, so the PXE menu can find its install record.
