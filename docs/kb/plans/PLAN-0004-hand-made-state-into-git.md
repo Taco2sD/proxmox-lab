@@ -21,7 +21,7 @@ Secrets never expire and have never been rotated (KB-0108).
 
 ## Steps
 
-- [ ] `terraform/infra`: adopt VM 105 and CT 106 with `import` blocks, iterate until
+- [ ] A new OpenTofu root next to `terraform/fleet` ("infra"): adopt VM 105 and CT 106 with `import` blocks, iterate until
       `tofu plan` is empty, and run it from `lab` like the fleet (state on mgmt01).
 - [ ] Record pve01-level settings in a pve01 role or group_vars: the ACME account and plugin
       (`pvenode config set --acme ...`), and the `cluster.fw` options.

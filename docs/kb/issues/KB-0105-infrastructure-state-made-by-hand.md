@@ -56,7 +56,7 @@ UI. Each change was small and sensible, but none was recorded.
 
 Proposed in PLAN-0004, not applied:
 
-1. A `terraform/infra` root that adopts VM 105 and CT 106 with `import` blocks (as was done
+1. A new OpenTofu root next to `terraform/fleet` (an "infra" root) that adopts VM 105 and CT 106 with `import` blocks (as was done
    for ws01–03) until `tofu plan` shows no changes. From then on, size changes are commits.
 2. A `lab doctor` check (or a CI-readable export) comparing `pvenode config get`,
    `cluster.fw` and the Hyper-V VM's settings with values in group_vars, so drift is visible.
