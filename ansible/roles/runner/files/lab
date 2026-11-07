@@ -564,6 +564,15 @@ INVITE_DAYS = 14
 MAIL_DOMAIN = "studio.example"      # the demo mailbox's made-up addresses (RFC 2606)
 
 
+def mail_address(p):
+    """A person's made-up address in the demo mailbox: first.last, the first of their
+    given names only ("Anna Maria" is anna.) and the surname run together ("de Vries"
+    is devries), letters and digits only."""
+    first = L.fold(p["given"]).lower().split()[0]
+    last = "".join(ch for ch in L.fold(p["surname"]).lower() if ch.isalnum())
+    return f"{first}.{last}@mail.example"
+
+
 def people_seed(path):
     """The studio's existing people, from a private file that is never in git (the
     repository is public; docs/self-service.md shows its format). Their accounts are
@@ -590,7 +599,7 @@ def people_seed(path):
         manager = p.get("manager")
         mail = {"id": p["username"], "time": now,
                 "from": {"name": names.get(manager, "People team"), "address": f"{manager or 'people'}@{MAIL_DOMAIN}"},
-                "to": f"{L.fold(p['given']).lower()}.{L.fold(p['surname']).lower().replace(' ', '')}@mail.example",
+                "to": mail_address(p),
                 "subject": f"Welcome aboard, {p['given']}!", "username": p["username"], "given": p["given"],
                 "person": {"Name": f"{p['given']} {p['surname']}", "Job title": p["title"],
                            "Team": teams[p["team"]]["name"], "Username": p["username"]}}
