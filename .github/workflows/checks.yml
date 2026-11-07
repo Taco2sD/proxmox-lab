@@ -32,10 +32,16 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: opentofu/setup-opentofu@v1
-        with:
-          tofu_version: 1.13.9
-          tofu_wrapper: false
+      # OpenTofu, the version mgmt01 runs, checked against the release's checksums
+      - name: OpenTofu
+        env:
+          TOFU: 1.13.9
+        run: |
+          base="https://github.com/opentofu/opentofu/releases/download/v${TOFU}"
+          curl -fsSLO "$base/tofu_${TOFU}_linux_amd64.zip"
+          curl -fsSL "$base/tofu_${TOFU}_SHA256SUMS" | grep " tofu_${TOFU}_linux_amd64.zip$" | sha256sum -c -
+          sudo unzip -oq "tofu_${TOFU}_linux_amd64.zip" tofu -d /usr/local/bin
+          tofu version
       - name: Tools
         run: pip install -r tools/requirements.txt
       - name: tools/check
