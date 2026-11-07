@@ -137,14 +137,23 @@ function notFoundView(user, typed = {}) {
     return el("div", {}, el("label", { class: "field", for: key }, label), f[key]);
   };
   const teams = el("datalist", { id: "teams" }, Object.values(CONFIG.teams).map(t => el("option", { value: t.name })));
+  // Known job titles (teams.yml and AD), narrowed by the browser as they type; each
+  // shows its team, and picking one fills in the team if it's still empty
+  const titles = el("datalist", { id: "titles" }, Object.entries(CONFIG.titles).map(([t, team]) =>
+    el("option", { value: t, label: CONFIG.teams[team]?.name || "" })));
   show(card(
     el("h2", {}, "We couldn't find that account"),
     el("p", { class: "muted" }, `There's no account called `, el("code", {}, user), ` yet. Your hiring manager may not have submitted it: `
        + "fill in the details from your welcome email and we'll create it. Don't worry about exact spelling."),
     el("div", { class: "two" }, input("given", "First name"), input("surname", "Surname")),
-    input("title", "Job title"), input("team", "Team", { list: "teams", placeholder: "e.g. Animation" }), teams,
+    input("title", "Job title", { list: "titles", placeholder: "Start typing, e.g. Sound" }), titles,
+    input("team", "Team", { list: "teams", placeholder: "e.g. Animation" }), teams,
     el("div", { class: "actions" }, el("button", { class: "ghost", onclick: () => findView(user) }, "Back"),
       el("button", { class: "primary", onclick: () => check(user, f) }, "Continue"))));
+  f.title.addEventListener("change", () => {
+    const team = CONFIG.titles[f.title.value];
+    if (team && !f.team.value.trim()) f.team.value = CONFIG.teams[team].name;
+  });
   f.given.focus();
 }
 

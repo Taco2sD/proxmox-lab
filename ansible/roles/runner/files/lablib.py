@@ -429,9 +429,37 @@ def expected_username(given, surname):
     return re.sub(r"[^a-z0-9]", "", first + fold(surname).lower())[:20]
 
 
-def check_person(form, team_defs):
+def known_titles(team_defs, people=None):
+    """{job title: team}: the titles in inventory/teams.yml, then the ones people in AD
+    already have (people(): exported from AD, never in git)."""
+    found = {}
+    for key, t in team_defs.items():
+        for title in t.get("titles", []):
+            found.setdefault(title, key)
+    for p in (people or {}).values():
+        if p.get("title") and p.get("team") in team_defs:
+            found.setdefault(p["title"], p["team"])
+    return found
+
+
+def match_title(text, titles):
+    """The job title someone meant ("sound desinger") -> the known title as written
+    there ("Sound Designer"), or None if nothing is close enough."""
+    import difflib
+    probe = " ".join(str(text).split()).lower()
+    lower = {t.lower(): t for t in titles}
+    if not probe:
+        return None
+    if probe in lower:
+        return lower[probe]
+    hit = difflib.get_close_matches(probe, lower, n=1, cutoff=0.8)
+    return lower[hit[0]] if hit else None
+
+
+def check_person(form, team_defs, titles=None):
     """A new hire's details as typed -> (cleaned, corrections, problems).
-    corrections: [{field, typed, now}] to show; problems: sentences that block."""
+    corrections: [{field, typed, now}] to show; problems: sentences that block.
+    titles: known_titles(), to correct the job title against (and take the team from)."""
     clean, corrections, problems = {}, [], []
     def note(field, typed, now):
         clean[field] = now
@@ -440,9 +468,11 @@ def check_person(form, team_defs):
     note("given", form.get("given", ""), tidy_name(form.get("given", "")))
     note("surname", form.get("surname", ""), tidy_name(form.get("surname", ""), surname=True))
     title = " ".join(str(form.get("title", "")).split())
-    note("title", form.get("title", ""), tidy_name(title) if title == title.lower() else title)
+    known = match_title(title, titles or {})
+    note("title", form.get("title", ""), known or (tidy_name(title) if title == title.lower() else title))
     typed_team = str(form.get("team", ""))
-    team = match_team(typed_team, team_defs) or (match_team(title, team_defs) if not typed_team.strip() else None)
+    team = match_team(typed_team, team_defs) or (
+        ((titles or {}).get(known) or match_team(title, team_defs)) if not typed_team.strip() else None)
     clean["team"] = team
     if team and team_defs[team]["name"] != typed_team.strip():
         corrections.append({"field": "team", "typed": typed_team.strip(), "now": team_defs[team]["name"]})

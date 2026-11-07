@@ -57,6 +57,32 @@ class People(unittest.TestCase):
         self.assertEqual(L.expected_username("Zoë", "Lefèbre"), "zlefebre")
 
 
+class Titles(unittest.TestCase):
+    TITLES = L.known_titles(TEAMS, {"x": {"title": "Lead Rigger", "team": "animation"}})
+
+    def test_known_titles_from_teams_and_ad(self):
+        self.assertEqual(self.TITLES["Sound Designer"], "audio")
+        self.assertEqual(self.TITLES["Lead Rigger"], "animation")          # only in AD
+
+    def test_typos_corrected_to_the_known_title(self):
+        for typed, title in [("Sound Desinger", "Sound Designer"), ("sound designer", "Sound Designer"),
+                             ("Gamplay Programer", "Gameplay Programmer"), ("lead rigger", "Lead Rigger")]:
+            self.assertEqual(L.match_title(typed, self.TITLES), title, typed)
+        for typed in ("", "Catering Manager"):
+            self.assertIsNone(L.match_title(typed, self.TITLES), typed)
+
+    def test_check_person_corrects_title_and_takes_its_team(self):
+        clean, corrections, problems = L.check_person(
+            {"username": "nvandam", "given": "Nina", "surname": "van Dam", "title": "Sound Desinger", "team": ""},
+            TEAMS, self.TITLES)
+        self.assertEqual((clean["title"], clean["team"], problems), ("Sound Designer", "audio", []))
+        self.assertIn({"field": "title", "typed": "Sound Desinger", "now": "Sound Designer"}, corrections)
+        # a title nobody has yet is kept as typed
+        clean, _, _ = L.check_person({"username": "nvandam", "given": "Nina", "surname": "van Dam",
+                                      "title": "Audio Wrangler", "team": "Audio"}, TEAMS, self.TITLES)
+        self.assertEqual(clean["title"], "Audio Wrangler")
+
+
 class Passwords(unittest.TestCase):
     def test_rules(self):
         self.assertEqual(L.password_problems("Correct-Horse-9", "pvandam", ("Pim", "van Dam")), [])

@@ -12,6 +12,9 @@
 #            ws-admins, ad_admin_groups in ansible/group_vars/all.yml)
 #   aliases  other words people use for it. The welcome page matches what someone
 #            types against names and aliases, forgiving typos (lablib.match_team)
+#   titles   the team's usual job titles. With the titles people in AD already have,
+#            the welcome page suggests them as someone types and corrects typos
+#            ("Sound Desinger"; lablib.match_title); a title nobody has yet is kept as typed
 #
 # Read by lablib.teams() (the portal, `lab`, tools/validate_inventory.py) and
 # roles/ad_people. People themselves are never in git: they live in AD.
@@ -21,43 +24,53 @@ it:
   role: infra
   admin: true
   aliases: [it, infrastructure, infra, systems, sysadmin, devops, operations, ops, network, studio it, tech support]
+  titles: [Infrastructure Engineer, Systems Administrator, Network Engineer, DevOps Engineer, IT Support Specialist, Head of IT]
 engineering:
   name: Engineering
   gid: 10102
   role: programmer
   aliases: [programming, programmer, software, code, tools, technology, engine, developer, development]
+  titles: [Gameplay Programmer, Engine Programmer, Tools Programmer, Graphics Programmer, AI Programmer,
+           Network Programmer, Tech Programmer, Technology Director]
 vfx:
   name: VFX
   gid: 10103
   role: artist
   aliases: [visual effects, effects, fx, vfx art]
+  titles: [VFX Artist, Senior VFX Artist, Lead VFX Artist, Technical VFX Artist]
 animation:
   name: Animation
   gid: 10104
   role: artist
   aliases: [animator, animators, cinematics, cinematic, character animation, mocap, motion capture]
+  titles: [Animator, Senior Animator, Cinematic Animator, Senior Cinematic Animator, Technical Animator, Lead Animator]
 environment:
   name: Environment Art
   gid: 10105
   role: artist
   aliases: [environment, environments, env art, world art, level art, art]
+  titles: [Environment Artist, Senior Environment Artist, Lighting Artist, Art Director, Concept Artist]
 design:
   name: Game Design
   gid: 10106
   role: designer
   aliases: [design, designer, game designer, level design, quest design, technical design, systems design]
+  titles: [Game Designer, Senior Game Designer, Level Designer, Quest Designer, Systems Designer, Technical Designer]
 narrative:
   name: Narrative
   gid: 10107
   role: designer
   aliases: [writing, writer, writers, story, narrative design, dialogue, scripting]
+  titles: [Writer, Senior Writer, Lead Writer, Narrative Designer]
 production:
   name: Production
   gid: 10108
   role: producer
   aliases: [producer, producers, project management, pm, management, tech production]
+  titles: [Producer, Tech Producer, Associate Producer, Head of Production, Project Manager]
 audio:
   name: Audio
   gid: 10109
   role: audio
   aliases: [sound, sound design, sound designer, sfx, music, composer, audio design]
+  titles: [Sound Designer, Senior Sound Designer, Audio Programmer, Composer, Audio Director]

@@ -395,6 +395,7 @@ def render_page(page="portal.html"):
                  "kind": v["kind"]} for k, v in L.catalog().items()}
     teams = {k: {"name": v["name"], "role": v["role"]} for k, v in L.teams().items()}
     config = {"roles": roles, "teams": teams, "phases": [p[:2] for p in L.PHASES],
+              "titles": dict(sorted(L.known_titles(L.teams(), L.people()).items())),
               "limits": L.settings()["staff_limits"], "idle_minutes": L.settings()["idle_hibernate_minutes"]}
     return (HERE / page).read_text(encoding="utf-8").replace("__CONFIG__", json.dumps(config))
 
@@ -577,7 +578,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---------------------------------------------------------------- staff (welcome page)
     def staff_post(self, path, body):
         if path == "/api/welcome/check":
-            clean, corrections, problems = L.check_person(body, L.teams())
+            clean, corrections, problems = L.check_person(body, L.teams(), L.known_titles(L.teams(), L.people()))
             if clean["username"] in L.people():
                 problems.insert(0, f"'{clean['username']}' already has an account: look it up instead.")
             return self.send(200, {"person": clean, "corrections": corrections, "problems": problems})
@@ -679,7 +680,8 @@ class Handler(BaseHTTPRequestHandler):
                     }.get(state, "Open the sign-up link from your welcome email to set up this account.")})
             names = (p.get("given", ""), p.get("surname", ""))
         else:
-            person, _, problems = L.check_person({**(body.get("person") or {}), "username": user}, L.teams())
+            person, _, problems = L.check_person({**(body.get("person") or {}), "username": user}, L.teams(),
+                                                 L.known_titles(L.teams(), L.people()))
             if problems:
                 return self.send(400, {"error": " ".join(problems)})
             del person["username"]                     # the account's name travels separately
