@@ -8,6 +8,18 @@
     name: [python3-yaml, git]
     state: present
 
+# mgmt01 is an unprivileged LXC: no kernel modules, no block devices of its own. Units
+# for hardware it can't have mostly skip themselves (ConditionVirtualization=!container:
+# smartmontools, chrony, fstrim...). nvme-cli's NVMe-over-Fabrics autoconnect has no
+# such guard and the package ships /etc/nvme/discovery.conf, so it ran at every boot and
+# failed (no /dev/nvme-fabrics in a container), which kept SystemdUnitsFailed firing.
+# docs/kb/issues/KB-0004-mgmt01-nvmf-autoconnect-in-lxc.md
+- name: No NVMe-over-Fabrics autoconnect in the container
+  ansible.builtin.systemd_service:
+    name: nvmf-autoconnect.service
+    enabled: false
+    masked: true
+
 - name: OpenTofu and its API token must be in place
   ansible.builtin.stat:
     path: /etc/proxmox-lab/tofu.env
