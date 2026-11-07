@@ -52,14 +52,18 @@ autoinstall:
           {{ lookup('ansible.builtin.template', 'lab-firstboot.j2') | indent(10) }}
       - path: /etc/systemd/system/lab-firstboot.service
         content: |
-          # Enroll a new workstation once (see /usr/local/sbin/lab-firstboot)
+          # Enroll a new workstation once (see /usr/local/sbin/lab-firstboot).
+          # After cloud-config: by then cloud-init has set the hostname. Not after
+          # cloud-final, which runs after multi-user.target: with this unit wanted by
+          # that target, systemd would see a cycle and drop this unit (docs/lessons.md).
+          # Type=simple so the boot doesn't wait minutes for ansible-pull.
           [Unit]
           Description=Enroll this new workstation in the lab (join password, ansible-pull)
           Wants=network-online.target
-          After=network-online.target cloud-final.service
+          After=network-online.target cloud-config.service
           ConditionPathExists=!/var/lib/lab-firstboot.done
           [Service]
-          Type=oneshot
+          Type=simple
           ExecStart=/usr/local/sbin/lab-firstboot
           [Install]
           WantedBy=multi-user.target
