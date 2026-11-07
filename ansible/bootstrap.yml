@@ -34,6 +34,14 @@
         password: "!"
         system: false
 
+    - name: .ssh is private
+      ansible.builtin.file:
+        path: /home/svc-runner/.ssh
+        state: directory
+        owner: svc-runner
+        group: svc-runner
+        mode: "0700"
+
     - name: SSH key, from mgmt01 only
       ansible.builtin.copy:
         dest: /home/svc-runner/.ssh/authorized_keys
@@ -43,14 +51,6 @@
         owner: svc-runner
         group: svc-runner
         mode: "0600"
-
-    - name: .ssh is private
-      ansible.builtin.file:
-        path: /home/svc-runner/.ssh
-        state: directory
-        owner: svc-runner
-        group: svc-runner
-        mode: "0700"
 
     - name: Passwordless sudo
       ansible.builtin.copy:
