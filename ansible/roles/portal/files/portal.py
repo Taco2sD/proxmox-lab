@@ -161,6 +161,11 @@ def guacamole_login(r, with_password=True, console=None):
     key = bytes.fromhex(JSON_KEY.read_text().strip())
     if console:
         name, protocol, params = f"{r['host']} desktop", "vnc", dict(console)
+        # guacd 1.6.0 drops the connection when the guest changes resolution (and the
+        # one-time ticket rules out its automatic reconnect). Without size negotiation it
+        # survives; desktops start at 1920x1080 (roles/desktop: monitors.xml), and after a
+        # resolution change, Desktop again shows the new size.
+        params["disable-display-resize"] = "true"
     else:
         name, protocol = r["host"], "ssh"
         params = {"hostname": r["ip"], "port": "22", "username": r["owner"],

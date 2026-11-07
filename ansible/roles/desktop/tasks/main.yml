@@ -51,6 +51,18 @@
     label: "{{ item.key }}"
   notify: Restart the login screen
 
+# The screen size for the login screen and every session (a person's own choice in
+# Settings > Displays, in ~/.config/monitors.xml, still wins). The VM's virtual monitor
+# starts at 1280x800; at 1920x1080 nobody needs to change it, which matters because a
+# change drops a browser connection to a smaller picture until Desktop is clicked
+# again (roles/portal: portal.py, guacamole_login)
+- name: Full-HD screen by default
+  ansible.builtin.copy:
+    src: monitors.xml
+    dest: /etc/xdg/monitors.xml
+    mode: "0644"
+  notify: Restart the login screen
+
 - name: Boot to the login screen
   ansible.builtin.file:
     src: /usr/lib/systemd/system/graphical.target
