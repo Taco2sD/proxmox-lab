@@ -121,6 +121,7 @@ function signInView() {
 // ---------------------------------------------------------------- the page
 async function load() {
   clearTimeout(timer);
+  if (selecting()) { timer = setTimeout(load, 1000); return; }   // don't drop a text selection
   const r = await api("/api/me");
   if (r.status === 403) { $("#signout").hidden = true; return signInView(); }
   if (!r.ok) { timer = setTimeout(load, 5000); return; }

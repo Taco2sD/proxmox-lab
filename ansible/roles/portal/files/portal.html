@@ -191,6 +191,7 @@ document.addEventListener("click", () => closeMenus());
 let timer = null;
 async function refresh() {
   clearTimeout(timer);
+  if (selecting()) { timer = setTimeout(refresh, 1000); return; }   // don't drop a text selection
   const info = await api("/api/info");
   let full = false;
   if (info.ok) {

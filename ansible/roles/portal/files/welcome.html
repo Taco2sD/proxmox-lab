@@ -229,6 +229,7 @@ function buildView(s) {
   const label = { account: "Your account", identity: "Machine identity", created: "Virtual machine",
                   joining: "Domain join", ready: "Software and settings" };
   const tick = async () => {
+    if (selecting()) { timer = setTimeout(tick, 1000); return; }   // don't drop a text selection
     const r = await api("/api/me");
     if (!r.ok) { timer = setTimeout(tick, 3000); return; }
     const { onboarding: ob, machines, signup_pending, person } = r.data;

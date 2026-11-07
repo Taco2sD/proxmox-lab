@@ -128,6 +128,7 @@ const selectable = m => m.state !== "removing";
 async function showMachines(user) {
   me = user || me;
   clearTimeout(timer);
+  if (selecting()) { timer = setTimeout(showMachines, 1000); return; }   // don't drop a text selection
   const [r, a] = await Promise.all([api("/api/admin/machines"), api("/api/admin/activity")]);
   if (r.status === 403) return showLogin("Your session ended. Sign in again.");
   if (!r.ok) { timer = setTimeout(showMachines, 5000); return; }
@@ -211,7 +212,7 @@ function render() {
     const box = el("input", { type: "checkbox", "data-host": m.host, checked: on, disabled: !can,
                               "aria-label": `Select ${m.host}`, onchange: e => toggle(m.host, e.target.checked) });
     return el("tr", { class: (on ? "selected " : "") + (can ? "pickable" : ""),
-                      onclick: e => { if (can && e.target !== box) toggle(m.host, !on); } },
+                      onclick: e => { if (can && e.target !== box && !selecting()) toggle(m.host, !on); } },
       el("td", { class: "pick" }, box),
       el("td", { class: "mono" }, m.host, m.vmid ? el("div", { class: "detail" }, `VM ${m.vmid}`) : null),
       el("td", {}, m.kind === "fleet" ? el("span", { class: "tag" }, "Fleet") : (m.owner || "–")),

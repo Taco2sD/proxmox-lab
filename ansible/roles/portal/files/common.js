@@ -38,6 +38,10 @@ const ago = ts => {
   return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago`
        : s < 86400 ? `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m ago` : `${Math.floor(s / 86400)}d ago`;
 };
+// True while the person has text selected on the page. The pages redraw themselves on a
+// timer (replaceChildren), which would drop the selection between selecting and Ctrl+C:
+// their refreshes wait while this is true, and row clicks that end a selection don't act.
+const selecting = () => { const s = getSelection(); return !!s && !s.isCollapsed && s.toString().trim() !== ""; };
 function toast(msg) {
   const t = $("#toast"); if (!t) return;
   t.textContent = msg; t.classList.add("show");
