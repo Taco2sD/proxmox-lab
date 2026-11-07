@@ -1,0 +1,367 @@
+# The lab's component map: every moving part, where it runs, what deploys it, and what it
+# needs in order to work. Read by tools/kb.py (checks every reference, draws the map in
+# docs/kb/INDEX.md, exports docs/kb/kb.json); issue, pattern, runbook and plan pages name
+# components by these ids.
+#
+#   id          kebab-case; never rename one (pages refer to it), add a new one instead
+#   kind        host (a machine, or a place things run) | service | pipeline | external
+#   host        where it runs (a host component); for a host: what it runs on, if anything
+#   roles       Ansible roles or other repo paths that deploy or define it
+#   docs        where it's explained
+#   depends_on  what must work for this to work (an arrow in the map points at these).
+#               Keep it to direct needs: the map is for "if X breaks, what breaks with it"
+#
+# Several things run on every machine (node_exporter, chrony, apt updates). They're listed
+# once, under the host where most of them run, and the description says so.
+components:
+  # ---- hosts -----------------------------------------------------------------------
+  - id: windows-host
+    name: Windows 11 PC (Hyper-V)
+    kind: host
+    description: The physical machine. Hyper-V's internal switch LabNAT and WinNAT give the lab 10.10.10.0/24 with
+      the PC as gateway 10.10.10.1; Wi-Fi is its only uplink.
+    roles: [host-setup]
+    docs: [README.md]
+
+  - id: pve01
+    name: pve01 (Proxmox VE, 10.10.10.10)
+    kind: host
+    host: windows-host
+    description: Proxmox VE nested in a Hyper-V Gen 2 VM; runs every other lab machine.
+    roles: [host-setup/03-pve-postinstall.sh]
+    docs: [README.md]
+
+  - id: dc01
+    name: dc01 (Samba AD DC, 10.10.10.5)
+    kind: host
+    host: pve01
+    description: The domain controller, AD DNS, DHCP and the lab's time source (VM 105).
+    docs: [README.md]
+
+  - id: mgmt01
+    name: mgmt01 (runner LXC, 10.10.10.6)
+    kind: host
+    host: pve01
+    description: Unprivileged LXC 106 running the lab's control plane, web front, image factory and monitoring.
+    docs: [README.md, docs/operations.md]
+
+  - id: workstations
+    name: Workstations (fleet + portal guests)
+    kind: host
+    host: pve01
+    description: Ubuntu 26.04 clones of the golden images (VM 121-159), configured by ansible-pull.
+    docs: [docs/self-service.md, docs/boundaries.md]
+
+  - id: vps
+    name: VPS (public edge)
+    kind: host
+    description: Contabo VPS that answers lab. and pve.radicallydecent.com; also hosts the main website.
+    docs: [vps/README.md]
+
+  - id: github
+    name: GitHub (repository, Actions)
+    kind: host
+    description: Source of truth for code; GitHub-hosted runners run the checks.
+    docs: [docs/CONTRIBUTING.md]
+
+  # ---- pve01 -----------------------------------------------------------------------
+  - id: proxmox-ve
+    name: Proxmox VE (API, VMs, local-lvm)
+    kind: service
+    host: pve01
+    description: Hypervisor and API on :8006 with a Let's Encrypt certificate; local-lvm thin pool holds every VM disk.
+    roles: [host-setup/03-pve-postinstall.sh]
+    docs: [README.md]
+
+  - id: console-relay
+    name: Console relay (lab-console.socket)
+    kind: service
+    host: pve01
+    description: Per-connection relay from Guacamole to a guest VM's screen (qm vncproxy), mgmt01 only.
+    roles: [ansible/roles/pve_console]
+    docs: [docs/self-service.md]
+    depends_on: [proxmox-ve]
+
+  - id: wireguard-tunnel
+    name: WireGuard tunnel to the VPS
+    kind: service
+    host: pve01
+    description: pve01 dials out to the VPS (10.99.0.2 -> 10.99.0.1); the internet's only way in.
+    roles: [ansible/roles/portal_relay]
+    docs: [vps/README.md]
+
+  - id: portal-relay
+    name: Portal relay (systemd-socket-proxyd)
+    kind: service
+    host: pve01
+    description: Forwards the tunnel's :8443 to mgmt01's internet-facing nginx server.
+    roles: [ansible/roles/portal_relay]
+    depends_on: [wireguard-tunnel, nginx]
+
+  - id: backups
+    name: Nightly backups (vzdump)
+    kind: service
+    host: pve01
+    description: Nightly backups of dc01 and mgmt01.
+    roles: [ansible/roles/pve_backups]
+    docs: [docs/operations.md]
+    depends_on: [proxmox-ve]
+
+  - id: golden-image
+    name: Golden images (templates 9000-9003)
+    kind: pipeline
+    host: pve01
+    description: Headless and desktop templates, A/B pairs; every workstation is a full clone of one.
+    roles: [ansible/roles/pxe]
+    docs: [docs/boundaries.md]
+    depends_on: [pxe-image-factory, proxmox-ve]
+
+  # ---- dc01 ------------------------------------------------------------------------
+  - id: samba-ad
+    name: Samba AD DC (AD.LAB.INTERNAL)
+    kind: service
+    host: dc01
+    description: Users, computers, groups (teams, role-*), Kerberos KDC; managedBy says who owns a workstation.
+    roles: [ansible/roles/dc_identity, ansible/roles/ad_people]
+    docs: [docs/boundaries.md]
+    depends_on: [time-sync]
+
+  - id: ad-dns
+    name: AD DNS
+    kind: service
+    host: dc01
+    description: Samba's DNS for ad.lab.internal, the reverse zone, and lab copies of the public names.
+    roles: [ansible/roles/lab_dns]
+    depends_on: [samba-ad]
+
+  - id: dhcp
+    name: DHCP (dnsmasq) and its DNS hook
+    kind: service
+    host: dc01
+    description: Reservations are the address source of truth; dhcp-dns-update registers A/PTR records over GSS-TSIG.
+    roles: [ansible/roles/dhcp_server, ansible/roles/dc_identity]
+    depends_on: [ad-dns]
+
+  - id: ldaps
+    name: LDAPS (dc01.lab.radicallydecent.com)
+    kind: service
+    host: dc01
+    description: LDAP over TLS with a Let's Encrypt certificate; the admin page signs people in over it.
+    roles: [ansible/roles/samba_ldaps]
+    depends_on: [samba-ad, acme-certs]
+
+  - id: time-sync
+    name: Time (chrony)
+    kind: service
+    host: dc01
+    description: dc01 is the lab's NTP source; every machine runs chrony with makestep 1 -1 (nested VMs freeze with
+      their host). Kerberos refuses 5 minutes of skew.
+    roles: [ansible/roles/base]
+
+  # ---- mgmt01 ----------------------------------------------------------------------
+  - id: lab-cli
+    name: lab (the runner's command)
+    kind: service
+    host: mgmt01
+    description: Every change is an operation (plan, apply, reimage, image build, deploy, guest create/delete).
+    roles: [ansible/roles/runner]
+    docs: [docs/operations.md]
+    depends_on: [opentofu, samba-ad, dhcp, proxmox-ve]
+
+  - id: opentofu
+    name: OpenTofu (VMs only)
+    kind: service
+    host: mgmt01
+    description: Creates and destroys workstation VMs; state per tier in /var/lib/lab/tofu.
+    roles: [terraform/modules/workstation, terraform/fleet, terraform/guest]
+    docs: [docs/boundaries.md]
+    depends_on: [proxmox-ve, golden-image]
+
+  - id: reconciler
+    name: Reconciler (lab-reconcile.timer)
+    kind: pipeline
+    host: mgmt01
+    description: Every minute follows the release branch; deploys site.yml when it moves and every 30 minutes anyway.
+    roles: [ansible/roles/runner]
+    docs: [docs/operations.md]
+    depends_on: [ci, lab-cli]
+
+  - id: portal
+    name: Self-service portal (web side)
+    kind: service
+    host: mgmt01
+    description: portal.py on 127.0.0.1:8090; welcome page, My lab, admin page, demo mailbox.
+    roles: [ansible/roles/portal]
+    docs: [docs/self-service.md]
+    depends_on: [nginx, ldaps, guacamole]
+
+  - id: portal-worker
+    name: Portal worker
+    kind: service
+    host: mgmt01
+    description: Runs requests as operations, records what Proxmox reports every minute, hibernates idle machines.
+    roles: [ansible/roles/portal]
+    docs: [docs/self-service.md]
+    depends_on: [lab-cli, proxmox-ve, samba-ad]
+
+  - id: guacamole
+    name: Apache Guacamole (browser terminal and desktop)
+    kind: service
+    host: mgmt01
+    description: JSON-auth only; SSH to workstations and VNC through the console relay.
+    roles: [ansible/roles/guacamole]
+    docs: [docs/self-service.md]
+    depends_on: [docker, console-relay]
+
+  - id: nginx
+    name: nginx on mgmt01
+    kind: service
+    host: mgmt01
+    description: HTTPS for the lab (443) and the internet via the relay (8443); join passwords, lab-events, the ISO.
+    roles: [ansible/roles/lab_web]
+    depends_on: [acme-certs]
+
+  - id: pxe-image-factory
+    name: PXE image factory
+    kind: pipeline
+    host: mgmt01
+    description: TFTP (shim + GRUB), autoinstall records and the ISO; lab image build installs builder VM 9009.
+    roles: [ansible/roles/pxe]
+    depends_on: [dhcp, nginx, proxmox-ve]
+
+  - id: acme-certs
+    name: Let's Encrypt certificates
+    kind: service
+    host: mgmt01
+    description: DNS-01 via acme-dns for lab., pve. and dc01.lab.radicallydecent.com (certbot on mgmt01 and dc01,
+      Proxmox's ACME client on pve01).
+    roles: [ansible/roles/acme_cert, ansible/roles/samba_ldaps]
+    depends_on: [acme-dns]
+
+  - id: docker
+    name: Docker on mgmt01
+    kind: service
+    host: mgmt01
+    description: Runs Guacamole and the monitoring stack (needs LXC features nesting=1,keyctl=1).
+    roles: [ansible/roles/guacamole, ansible/roles/monitoring]
+
+  - id: prometheus
+    name: Prometheus
+    kind: service
+    host: mgmt01
+    description: Scrapes every 15 s, stores 30 days, evaluates the alert rules; served at /prometheus/.
+    roles: [ansible/roles/monitoring]
+    docs: [docs/monitoring.md]
+    depends_on: [docker, node-exporter, pve-exporter, blackbox, lab-metrics]
+
+  - id: grafana
+    name: Grafana
+    kind: service
+    host: mgmt01
+    description: Lab overview and Machine dashboards from git, anonymous viewers behind the sign-in gate.
+    roles: [ansible/roles/monitoring]
+    docs: [docs/monitoring.md]
+    depends_on: [prometheus, nginx, docker]
+
+  - id: blackbox
+    name: blackbox_exporter
+    kind: service
+    host: mgmt01
+    description: Probes the portal, Guacamole, Grafana, Proxmox API, the VPS sign-in page, LDAPS, Kerberos, AD DNS.
+    roles: [ansible/roles/monitoring]
+    docs: [docs/monitoring.md]
+    depends_on: [docker]
+
+  - id: pve-exporter
+    name: prometheus-pve-exporter
+    kind: service
+    host: mgmt01
+    description: Proxmox's view of every VM and storage pool, with a read-only token.
+    roles: [ansible/roles/monitoring, ansible/roles/pve_monitoring]
+    docs: [docs/monitoring.md]
+    depends_on: [docker, proxmox-ve]
+
+  - id: lab-metrics
+    name: lab-metrics (targets + lab state)
+    kind: service
+    host: mgmt01
+    description: Writes Prometheus's workstation targets and lab_* metrics from the lab's records every 30 s.
+    roles: [ansible/roles/monitoring]
+    docs: [docs/monitoring.md]
+    depends_on: [portal-worker, node-exporter]
+
+  - id: alert-rules
+    name: Alert rules
+    kind: service
+    host: mgmt01
+    description: ansible/roles/monitoring/files/alerts.yml; every rule has a runbook in docs/kb/runbooks.
+    roles: [ansible/roles/monitoring]
+    docs: [docs/monitoring.md]
+    depends_on: [prometheus]
+
+  # ---- workstations ----------------------------------------------------------------
+  - id: sssd
+    name: SSSD (AD logins)
+    kind: service
+    host: workstations
+    description: Joins with a one-time password, authenticates against AD, admits the owner and login groups.
+    roles: [ansible/roles/ad_join, ansible/roles/join_otp]
+    depends_on: [samba-ad, ad-dns, time-sync]
+
+  - id: ansible-pull
+    name: ansible-pull (self-configuration)
+    kind: pipeline
+    host: workstations
+    description: Every 30 minutes pulls the release branch from GitHub and runs ansible/local.yml; reports to lab-events.
+    roles: [ansible/roles/base, ansible/roles/workstation_role]
+    docs: [docs/operations.md]
+    depends_on: [ci, nginx]
+
+  - id: desktop
+    name: GNOME desktop
+    kind: service
+    host: workstations
+    description: Ubuntu Desktop baked into the desktop image; reached as the VM's screen through Guacamole.
+    roles: [ansible/roles/desktop]
+    depends_on: [golden-image]
+
+  - id: node-exporter
+    name: node_exporter
+    kind: service
+    host: workstations
+    description: On every server and workstation (:9100) with the systemd and apt collectors.
+    roles: [ansible/roles/node_exporter]
+    docs: [docs/monitoring.md]
+
+  - id: patching
+    name: Security updates (unattended-upgrades)
+    kind: service
+    host: workstations
+    description: Automatic security updates on every machine; pending counts show in monitoring.
+    roles: [ansible/roles/patching]
+
+  # ---- vps and github --------------------------------------------------------------
+  - id: sign-in-gate
+    name: Sign-in gate (nginx + oauth2-proxy)
+    kind: service
+    host: vps
+    description: The lab access account in front of lab. and pve.radicallydecent.com.
+    roles: [vps/oauth2-proxy, vps/nginx-lab-gate.conf]
+    docs: [vps/README.md]
+    depends_on: [wireguard-tunnel]
+
+  - id: acme-dns
+    name: acme-dns
+    kind: service
+    host: vps
+    description: Answers the DNS-01 challenges for every lab certificate; each name has its own account.
+    roles: [vps/acme-dns.cfg]
+    docs: [vps/README.md]
+
+  - id: ci
+    name: CI (GitHub Actions)
+    kind: pipeline
+    host: github
+    description: Runs tools/check on every push to main; fast-forwards the release branch (stable) when it passes.
+    roles: [.github/workflows/checks.yml, tools/check]
+    docs: [docs/CONTRIBUTING.md]

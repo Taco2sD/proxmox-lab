@@ -161,14 +161,17 @@ host-setup/     Hyper-V + Proxmox build scripts
 tools/          check: every check CI runs; the inventory and reference checkers
 tests/          unit tests for the Python
 docs/           operations.md (runbook), self-service.md, monitoring.md, boundaries.md,
-                lessons.md, CONTRIBUTING.md
+                lessons.md, CONTRIBUTING.md; kb/: the knowledge base (problems, patterns,
+                runbooks, plans, component map)
 ```
 
 The `lab` command on mgmt01 is the one way in: `lab status`, `lab doctor`, `lab plan`,
 `lab apply`, `lab reimage <host>`, `lab image build`, `lab deploy`. See
 [docs/operations.md](docs/operations.md).
 
-What went wrong while building this, and why, is in [docs/lessons.md](docs/lessons.md).
+What went wrong while building this, and why, is in [docs/lessons.md](docs/lessons.md); every
+problem found and fixed since, with its pattern and runbook, is in the
+[knowledge base](docs/kb/README.md) ([index](docs/kb/INDEX.md)).
 
 ## What I'd do differently in production
 

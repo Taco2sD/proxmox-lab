@@ -4,7 +4,7 @@
 #
 #   tools/check            all checks
 #   tools/check python     only the named groups: lint-yaml lint-ansible lint-shell
-#                          python inventory references tofu
+#                          python inventory references kb tofu
 #
 # Needs: yamllint, ansible-lint, shellcheck, ruff, tofu, python3 with PyYAML.
 # (docs/CONTRIBUTING.md: how to get them.)
@@ -12,7 +12,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
 groups=("$@")
-[ ${#groups[@]} -eq 0 ] && groups=(lint-yaml lint-ansible lint-shell python inventory references tofu)
+[ ${#groups[@]} -eq 0 ] && groups=(lint-yaml lint-ansible lint-shell python inventory references kb tofu)
 failed=()
 
 run() {   # run <group> <command...>: print a header, remember failures
@@ -46,6 +46,7 @@ for g in "${groups[@]}"; do
                   run "$g" python3 -m unittest discover -s tests -v ;;
     inventory)    run "$g" python3 tools/validate_inventory.py ;;
     references)   run "$g" python3 tools/check_references.py ;;
+    kb)           run "$g" python3 tools/kb.py check ;;
     tofu)         run "$g" tofu fmt -check -recursive terraform
                   for root in fleet guest; do
                     run "$g" tofu -chdir="terraform/$root" init -backend=false -input=false -no-color >/dev/null

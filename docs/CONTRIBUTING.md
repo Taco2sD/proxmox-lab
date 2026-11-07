@@ -21,6 +21,7 @@ On mgmt01 there's a ready environment: `PATH=/opt/lab-dev/bin:$PATH tools/check`
 | `python` | ruff (`ruff.toml`), and the unit tests in `tests/` |
 | `inventory` | `tools/validate_inventory.py`: the fleet and catalogue follow the rules |
 | `references` | `tools/check_references.py`: every repository path a file mentions exists |
+| `kb` | `tools/kb.py check`: the knowledge base's pages, links and component map are valid, every alert has a runbook, and the generated index is current |
 | `tofu` | `tofu fmt` and `tofu validate` for both roots |
 
 ## Where things go
@@ -36,6 +37,19 @@ On mgmt01 there's a ready environment: `PATH=/opt/lab-dev/bin:$PATH tools/check`
   lines in a shared file (the fleet, DHCP reservations, join-password rules, guest
   records, operations all work this way). Adding and removing is creating and deleting
   a file; nobody edits anyone else's lines.
+
+## The knowledge base
+
+Every problem fixed gets a page in docs/kb (docs/kb/README.md has the templates and rules):
+
+1. Write `docs/kb/issues/KB-NNNN-<slug>.md` (the next free number) while you fix it: symptom, how
+   it was found (`found_by`: monitoring, build, investigation, user, ci or review), root cause,
+   fix, verification with the output that proved it, prevention.
+2. Link its pattern from docs/kb/patterns, or add a pattern page if none fits.
+3. A new alert rule in ansible/roles/monitoring/files/alerts.yml needs a runbook in
+   docs/kb/runbooks and a `runbook_url` annotation.
+4. `python3 tools/kb.py build`, then commit the fix and its pages together (add the commit hash
+   to the page's `commits` in a follow-up commit if you want it exact).
 
 ## Comments
 
