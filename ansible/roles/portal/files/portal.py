@@ -126,12 +126,32 @@ def public_view(r):
 JSON_KEY = Path("/etc/lab-portal/json-secret-key")   # shared with Guacamole (roles/guacamole)
 
 
-def guacamole_login(r, with_password=True, desktop=False):
+CONSOLE_TOKEN = Path("/etc/lab-portal/console-token")   # VM.Console only (roles/pve_console)
+
+
+def console_ticket(r):
+    """A one-time VNC ticket for the machine's own screen, from Proxmox (vncproxy with
+    generate-password: an 8-character password for standard VNC clients). Proxmox
+    listens for it on pve01 for a few seconds; Guacamole connects within one or two."""
+    import ssl
+    import urllib.request
+    cfg = L.settings()
+    req = urllib.request.Request(
+        f"https://{cfg['pve_fqdn']}:8006/api2/json/nodes/{cfg['pve_node']}/qemu/{int(r['vmid'])}/vncproxy",
+        data=b"generate-password=1", method="POST",
+        headers={"Authorization": CONSOLE_TOKEN.read_text().strip()})
+    with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=10) as resp:
+        t = json.load(resp)["data"]
+    return {"hostname": cfg["pve01_ip"], "port": str(t["port"]), "password": t["password"]}
+
+
+def guacamole_login(r, with_password=True, console=None):
     """A Guacamole JSON-auth login for one connection to the owner's machine, valid for
-    60 seconds: SSH (the terminal), or RDP to xrdp (desktop=True: the XFCE desktop of
-    roles/desktop). Visitors' passwords are on mgmt01 and go in; staff members' aren't
-    stored anywhere, so for them the terminal or xrdp's login screen asks
-    (with_password=False). Returns (connection name, data).
+    60 seconds: SSH (the terminal), or with `console` (console_ticket()), the machine's
+    own screen over VNC: the Ubuntu login, where the owner signs in with their AD
+    password, then their GNOME desktop (roles/desktop). Visitors' passwords are on
+    mgmt01 and go into the terminal; staff members' aren't stored anywhere, so the
+    terminal or the login screen asks (with_password=False). Returns (name, data).
     Same steps as Guacamole's reference encrypt-json.sh:
     HMAC-SHA256 the JSON with the key, prepend the signature, AES-128-CBC with a zero
     IV (PKCS#7 padding), base64."""
@@ -139,17 +159,14 @@ def guacamole_login(r, with_password=True, desktop=False):
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
     key = bytes.fromhex(JSON_KEY.read_text().strip())
-    if desktop:
-        # xrdp's certificate is its own self-signed one, on the lab network only
-        name, protocol = f"{r['host']} desktop", "rdp"
-        params = {"hostname": r["ip"], "port": "3389", "username": r["owner"], "security": "any",
-                  "ignore-cert": "true", "resize-method": "display-update"}
+    if console:
+        name, protocol, params = f"{r['host']} desktop", "vnc", dict(console)
     else:
         name, protocol = r["host"], "ssh"
         params = {"hostname": r["ip"], "port": "22", "username": r["owner"],
                   "color-scheme": "gray-black", "font-size": "11"}
-    if with_password:
-        params["password"] = (L.PASSWORDS / r["owner"]).read_text()
+        if with_password:
+            params["password"] = (L.PASSWORDS / r["owner"]).read_text()
     payload = json.dumps({
         "username": r["owner"],
         "expires": int((time.time() + 60) * 1000),                       # milliseconds
@@ -601,7 +618,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(409, {"error": "The workstation is asleep or off. Start it first."})
             if desktop and mine[host]["kind"] != "desktop":
                 return self.send(400, {"error": "This workstation has no desktop: open its terminal."})
-            return self.send(200, {"url": guacamole_url(*guacamole_login(r, with_password=False, desktop=desktop))})
+            try:
+                console = console_ticket(r) if desktop else None
+            except Exception as e:                                     # noqa: BLE001
+                print(f"console ticket for {host} failed: {e!r}", flush=True)
+                return self.send(503, {"error": "Couldn't open the desktop. Try again in a moment."})
+            return self.send(200, {"url": guacamole_url(*guacamole_login(r, with_password=False, console=console))})
         return self.send(404, {"error": "not found"})
 
     def staff_cookie(self, user):

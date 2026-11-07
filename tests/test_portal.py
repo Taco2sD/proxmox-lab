@@ -82,9 +82,10 @@ class GuacamoleLogin(unittest.TestCase):
         ssh = open_login()
         self.assertEqual((ssh["protocol"], ssh["parameters"]["hostname"], ssh["parameters"]["password"]),
                          ("ssh", "10.10.10.31", "pw"))
-        rdp = open_login(with_password=False, desktop=True)      # staff: xrdp asks for the password
-        self.assertEqual((rdp["protocol"], rdp["parameters"]["port"]), ("rdp", "3389"))
-        self.assertNotIn("password", rdp["parameters"])
+        # staff desktop: the VM's own screen through a Proxmox console ticket
+        vnc = open_login(with_password=False, console={"hostname": "10.10.10.10", "port": "5900", "password": "t1ck3t"})
+        self.assertEqual((vnc["protocol"], vnc["parameters"]["port"], vnc["parameters"]["password"]),
+                         ("vnc", "5900", "t1ck3t"))
 
 
 if __name__ == "__main__":

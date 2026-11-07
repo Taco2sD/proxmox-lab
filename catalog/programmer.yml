@@ -1,6 +1,6 @@
 # The "programmer" workstation: one entry in the lab's catalogue of workstation
 # definitions. Same shape and same readers as catalog/artist.yml (see its header).
-# A graphical desktop (roles/desktop: XFCE, opened in the browser over RDP)
+# A graphical desktop (roles/desktop: Ubuntu Desktop, opened in the browser as the VM's screen)
 kind: desktop
 name: Programmer
 description: Ubuntu 26.04 with a C/C++ and Python toolchain.

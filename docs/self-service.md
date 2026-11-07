@@ -49,8 +49,12 @@ A new hire's welcome email gives them their username. On `/welcome`:
    `staff_max_machines`. Staff machines are named `ws<NN>` after their VM ID; staff
    accounts stay when their machines go.
 
-**Two kinds of workstation** (`catalog/<role>.yml`: `kind`). *Desktop* roles get XFCE and
-xrdp (roles/desktop), opened in the browser through Guacamole's RDP; *headless* ones
+**Two kinds of workstation** (`catalog/<role>.yml`: `kind`). *Desktop* roles get Ubuntu
+Desktop (GNOME, roles/desktop). People sign in at its login screen with their AD account,
+and reach it as the VM's own screen: My lab's Desktop button asks Proxmox for a one-time
+console ticket (a VM.Console-only API token, roles/pve_console) and Guacamole opens it
+over VNC. No remote-desktop server runs inside the VM. (GNOME's own Remote Login was
+tried: it starts with an RDP server redirection, which Guacamole can't follow.) *Headless* ones
 (`devbox`: 1 vCPU, 1 GB) stay the minimal image plus the basics, reached over SSH or the
 browser terminal. Each person may have one desktop and four headless boxes
 (`staff_limits`). The lab admits a new machine when its memory fits next to all the

@@ -51,7 +51,7 @@ Workstations are clones of a Proxmox template, one per kind of workstation (`ima
 | Image | Template VMs | Source | For |
 |-------|--------------|--------|-----|
 | headless | 9000 / 9001 | Ubuntu minimal server + the AD client | dev/jump boxes (`kind: headless`) |
-| desktop | 9002 / 9003 | full Ubuntu server + XFCE, xrdp and every desktop role's packages | the graphical workstations (`kind: desktop`) |
+| desktop | 9002 / 9003 | full Ubuntu server + Ubuntu Desktop (GNOME) and every desktop role's packages | the graphical workstations (`kind: desktop`) |
 
 Everything is baked in so a clone's first boot only enrolls it (domain join, owner,
 one configuration run): deploy speed first. `lab image build [headless|desktop]` makes

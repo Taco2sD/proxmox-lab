@@ -1,4 +1,13 @@
-- name: Restart xrdp
-  ansible.builtin.systemd_service:
-    name: xrdp
-    state: restarted
+# Only while nobody is signed in on the screen: restarting GDM would end their session.
+# In practice that's a new machine's first configuration run.
+- name: Restart the login screen
+  ansible.builtin.shell: |
+    if loginctl list-sessions --no-legend | awk '{print $1}' | while read -r s; do
+         [ "$(loginctl show-session "$s" -p Class --value)" = user ] &&
+         [ -n "$(loginctl show-session "$s" -p Seat --value)" ] && echo busy
+       done | grep -q busy; then
+        echo "someone is signed in: the new login screen settings apply from the next restart"
+    else
+        systemctl restart gdm3
+    fi
+  changed_when: true

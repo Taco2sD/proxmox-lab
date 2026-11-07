@@ -43,11 +43,22 @@
     content: |
       #!/bin/sh
       # Managed by Ansible (base role). Run every five minutes by lab-activity.timer:
-      # while anyone is connected (an SSH or RDP connection, including the browser
-      # terminal and desktop through Guacamole), tell mgmt01. The portal's worker
+      # while anyone is using this machine, tell mgmt01. "Using" is an SSH connection
+      # (including the browser terminal) or a desktop session that isn't idle (GNOME
+      # tells logind when the screen goes idle; the desktop reaches people as the VM's
+      # own screen, so there's no connection to see here). The portal's worker
       # hibernates staff machines that haven't reported for idle_hibernate_minutes
       # (ansible/group_vars/all.yml); they resume exactly where they were.
-      if [ -n "$(ss -Htn state established '( sport = :22 or sport = :3389 )')" ]; then
+      busy() {
+          [ -n "$(ss -Htn state established '( sport = :22 )')" ] && return 0
+          for s in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
+              [ "$(loginctl show-session "$s" -p Class --value)" = user ] || continue
+              [ -n "$(loginctl show-session "$s" -p Seat --value)" ] || continue
+              [ "$(loginctl show-session "$s" -p IdleHint --value)" = no ] && return 0
+          done
+          return 1
+      }
+      if busy; then
           exec curl -fsS -o /dev/null --max-time 10 "https://{{ lab_fqdn }}/lab-events/active"
       fi
     mode: "0755"

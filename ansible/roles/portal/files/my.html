@@ -196,7 +196,7 @@ function machineCard(m) {
     m.power === "hibernated" ? el("div", { class: "small muted" }, "Asleep, with everything as you left it. Start brings it back exactly there.") : null,
     el("table", { class: "facts" }, el("tbody", {},
       el("tr", {}, el("th", {}, "Hardware"), el("td", {}, specs(role.size))),
-      el("tr", {}, el("th", {}, "System"), el("td", {}, role.kind === "desktop" ? "Ubuntu 26.04 minimal, XFCE desktop, in AD"
+      el("tr", {}, el("th", {}, "System"), el("td", {}, role.kind === "desktop" ? "Ubuntu 26.04 Desktop (GNOME), in AD"
                                                                                 : "Ubuntu 26.04 minimal, headless, in AD")),
       el("tr", {}, el("th", {}, "Software"), el("td", {}, el("div", { class: "chips" }, (role.tools || []).map(t => el("span", { class: "chip" }, t))))),
       m.phases?.queued ? el("tr", {}, el("th", {}, "Created"), el("td", {}, new Date(m.phases.queued * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))) : null,

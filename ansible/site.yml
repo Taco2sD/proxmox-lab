@@ -27,3 +27,9 @@
     - pxe            # TFTP boot menu, the image builder's install record, ISO over HTTP
     - portal         # web side and worker
     - guacamole      # the browser terminal
+
+# Last: it writes into mgmt01's portal directory, which the play above creates
+- name: Console token for the portal (pve01, handed to mgmt01)
+  hosts: pve01
+  roles:
+    - pve_console    # API token for the portal: VM consoles only (My lab's Desktop)
