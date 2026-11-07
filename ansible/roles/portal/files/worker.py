@@ -321,6 +321,7 @@ def on_event(e):
                               error=f"the machine could not fetch its one-time join password (HTTP {e['status']})")
         elif uri == "/lab-events/configured" and ok:
             L.guest_phase(host, "ready", state="ready")
+            threading.Thread(target=observe_vms, daemon=True).start()   # My lab shows it running now
 
 
 # ---------------------------------------------------------------- periodic checks

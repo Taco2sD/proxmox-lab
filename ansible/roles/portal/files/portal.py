@@ -307,11 +307,20 @@ def my_machines(user):
     configuration run), then requests the worker hasn't picked up yet, so a new machine
     shows up the moment it's asked for."""
     checkins, cat = L.read_json(L.CHECKINS) or {}, L.catalog()
-    vms = (L.read_json(L.OBSERVED) or {}).get("vms", {})
+    observed = L.read_json(L.OBSERVED) or {}
+    vms = observed.get("vms", {})
+
+    def power(r):
+        """Proxmox's view (worker.py reads it every minute and after every power action),
+        unless something newer happened since: a machine that just became ready or woke
+        up is running, whatever an older snapshot says."""
+        if max(r.get("phases", {}).get("ready", 0), r.get("resumed", 0)) > observed.get("time", 0):
+            return "running"
+        return (vms.get(str(r.get("vmid"))) or {}).get("power")
     keep = ("host", "role", "ip", "vmid", "state", "error", "phases", "removal", "power_action", "power_error")
     found = [{k: r.get(k) for k in keep} | {"checkin": checkins.get(r.get("ip")),
                                             "kind": cat.get(r.get("role"), {}).get("kind"),
-                                            "power": (vms.get(str(r.get("vmid"))) or {}).get("power")}
+                                            "power": power(r)}
              for r in sorted(L.guests().values(), key=lambda r: r.get("vmid") or 0)
              if r.get("staff") and r.get("owner") == user]
     for p in sorted(L.REQUESTS.glob("*.json")):
