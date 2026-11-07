@@ -49,6 +49,21 @@ A new hire's welcome email gives them their username. On `/welcome`:
    `staff_max_machines`. Staff machines are named `ws<NN>` after their VM ID; staff
    accounts stay when their machines go.
 
+**Two kinds of workstation** (`catalog/<role>.yml`: `kind`). *Desktop* roles get XFCE and
+xrdp (roles/desktop), opened in the browser through Guacamole's RDP; *headless* ones
+(`devbox`: 1 vCPU, 1 GB) stay the minimal image plus the basics, reached over SSH or the
+browser terminal. Each person may have one desktop and four headless boxes
+(`staff_limits`). The lab admits a new machine when its memory fits next to all the
+others (`guest_memory_mb`, `lablib.admission`), not by counting machines.
+
+**Power and hibernation.** My lab starts, shuts down, restarts and hibernates a person's
+machines (the worker calls Proxmox with its API token). Hibernate is Proxmox's suspend
+to disk, VMware's "suspend": the memory is written to the VM's storage and the VM stops,
+freeing its RAM; Start brings it back exactly where it was (chrony steps the clock).
+Every workstation reports every five minutes while anyone is connected over SSH or RDP
+(roles/base: lab-activity); staff machines with no report for `idle_hibernate_minutes`
+are hibernated by the worker.
+
 **SSH keys.** The key someone gives is stored once, at `/var/www/lab/keys/<user>`, and
 every workstation's sshd asks mgmt01 for it on each key login (AuthorizedKeysCommand,
 roles/ad_join), like GitHub's `<user>.keys`. The private key never leaves the laptop,

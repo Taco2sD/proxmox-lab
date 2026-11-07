@@ -1,0 +1,26 @@
+# A graphical desktop for workstations whose catalogue entry says kind: desktop
+# (included by roles/workstation_role). XFCE: light enough for a VM without a GPU, and
+# xrdp serves it over RDP, which Guacamole on mgmt01 opens in the browser (the portal's
+# My lab: Open desktop). xrdp authenticates through PAM, so AD accounts work and the
+# same rule as SSH decides who may log in (SSSD: the owner and the admins).
+# Headless machines (kind: headless) never get any of this: they stay minimal.
+
+- name: XFCE and xrdp (no recommends; the minimal image stays lean)
+  ansible.builtin.apt:
+    name: [xrdp, xorgxrdp, xfce4, xfce4-terminal, dbus-x11, adwaita-icon-theme, fonts-dejavu-core]
+    install_recommends: false
+    state: present
+
+# xrdp's TLS key is Ubuntu's snakeoil one (/etc/ssl/private), readable by ssl-cert only
+- name: Let xrdp read its TLS key
+  ansible.builtin.user:
+    name: xrdp
+    groups: ssl-cert
+    append: true
+  notify: Restart xrdp
+
+- name: The remote desktop server (xrdp) running
+  ansible.builtin.systemd_service:
+    name: xrdp
+    enabled: true
+    state: started

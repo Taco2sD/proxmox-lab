@@ -126,10 +126,12 @@ def public_view(r):
 JSON_KEY = Path("/etc/lab-portal/json-secret-key")   # shared with Guacamole (roles/guacamole)
 
 
-def guacamole_login(r, with_password=True):
-    """A Guacamole JSON-auth login for one SSH connection to the owner's machine,
-    valid for 60 seconds. Visitors' passwords are on mgmt01 and go in; staff members'
-    aren't stored anywhere, so for them the terminal asks (with_password=False).
+def guacamole_login(r, with_password=True, desktop=False):
+    """A Guacamole JSON-auth login for one connection to the owner's machine, valid for
+    60 seconds: SSH (the terminal), or RDP to xrdp (desktop=True: the XFCE desktop of
+    roles/desktop). Visitors' passwords are on mgmt01 and go in; staff members' aren't
+    stored anywhere, so for them the terminal or xrdp's login screen asks
+    (with_password=False). Returns (connection name, data).
     Same steps as Guacamole's reference encrypt-json.sh:
     HMAC-SHA256 the JSON with the key, prepend the signature, AES-128-CBC with a zero
     IV (PKCS#7 padding), base64."""
@@ -137,20 +139,36 @@ def guacamole_login(r, with_password=True):
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
     key = bytes.fromhex(JSON_KEY.read_text().strip())
-    params = {"hostname": r["ip"], "port": "22", "username": r["owner"],
-              "color-scheme": "gray-black", "font-size": "11"}
+    if desktop:
+        # xrdp's certificate is its own self-signed one, on the lab network only
+        name, protocol = f"{r['host']} desktop", "rdp"
+        params = {"hostname": r["ip"], "port": "3389", "username": r["owner"], "security": "any",
+                  "ignore-cert": "true", "resize-method": "display-update", "color-depth": "24"}
+    else:
+        name, protocol = r["host"], "ssh"
+        params = {"hostname": r["ip"], "port": "22", "username": r["owner"],
+                  "color-scheme": "gray-black", "font-size": "11"}
     if with_password:
         params["password"] = (L.PASSWORDS / r["owner"]).read_text()
     payload = json.dumps({
         "username": r["owner"],
         "expires": int((time.time() + 60) * 1000),                       # milliseconds
-        "connections": {r["host"]: {"protocol": "ssh", "parameters": params}},
+        "connections": {name: {"protocol": protocol, "parameters": params}},
     }).encode()
     signed = hmac.new(key, payload, hashlib.sha256).digest() + payload
     padder = padding.PKCS7(128).padder()
     padded = padder.update(signed) + padder.finalize()
     encryptor = Cipher(algorithms.AES(key), modes.CBC(bytes(16))).encryptor()
-    return base64.b64encode(encryptor.update(padded) + encryptor.finalize()).decode()
+    return name, base64.b64encode(encryptor.update(padded) + encryptor.finalize()).decode()
+
+
+def guacamole_url(name, data):
+    """Straight to the connection's own page. Guacamole's home page only jumps into a
+    lone connection on a fresh login; with a session already open it shows "No recent
+    connections". The id is Guacamole's client identifier: base64 of
+    "<connection>\0c\0<data source>"."""
+    client = base64.b64encode(f"{name}\0c\0json".encode()).decode()
+    return f"/guacamole/#/client/{client}?data=" + quote(data, safe="")
 
 
 # ---------------------------------------------------------------- lab admins (/admin)
@@ -288,16 +306,20 @@ def my_machines(user):
     """A staff member's workstations for My lab: their records (with the last finished
     configuration run), then requests the worker hasn't picked up yet, so a new machine
     shows up the moment it's asked for."""
-    checkins = L.read_json(L.CHECKINS) or {}
-    keep = ("host", "role", "ip", "vmid", "state", "error", "phases", "removal")
-    found = [{k: r.get(k) for k in keep} | {"checkin": checkins.get(r.get("ip"))}
+    checkins, cat = L.read_json(L.CHECKINS) or {}, L.catalog()
+    vms = (L.read_json(L.OBSERVED) or {}).get("vms", {})
+    keep = ("host", "role", "ip", "vmid", "state", "error", "phases", "removal", "power_action", "power_error")
+    found = [{k: r.get(k) for k in keep} | {"checkin": checkins.get(r.get("ip")),
+                                            "kind": cat.get(r.get("role"), {}).get("kind"),
+                                            "power": (vms.get(str(r.get("vmid"))) or {}).get("power")}
              for r in sorted(L.guests().values(), key=lambda r: r.get("vmid") or 0)
              if r.get("staff") and r.get("owner") == user]
     for p in sorted(L.REQUESTS.glob("*.json")):
         q = L.read_json(p) or {}
         if q.get("action") == "staff-create" and q.get("user") == user:
             found.append({"host": None, "role": q["role"], "ip": None, "vmid": None, "state": "building",
-                          "error": None, "phases": {"queued": q["time"]}, "removal": None, "checkin": None})
+                          "error": None, "phases": {"queued": q["time"]}, "removal": None, "checkin": None,
+                          "kind": L.catalog().get(q["role"], {}).get("kind"), "power": None})
     return found
 
 
@@ -329,11 +351,11 @@ def activity(limit=30):
 def render_page(page="portal.html"):
     """A page with the roles, teams and build steps filled in, so the page and the API
     never disagree about them."""
-    roles = {k: {"name": v["name"], "desc": v["description"], "tools": v["tools"], "size": v["size"]}
-             for k, v in L.catalog().items()}
+    roles = {k: {"name": v["name"], "desc": v["description"], "tools": v["tools"], "size": v["size"],
+                 "kind": v["kind"]} for k, v in L.catalog().items()}
     teams = {k: {"name": v["name"], "role": v["role"]} for k, v in L.teams().items()}
     config = {"roles": roles, "teams": teams, "phases": [p[:2] for p in L.PHASES],
-              "max_machines": L.settings()["staff_max_machines"]}
+              "limits": L.settings()["staff_limits"], "idle_minutes": L.settings()["idle_hibernate_minutes"]}
     return (HERE / page).read_text(encoding="utf-8").replace("__CONFIG__", json.dumps(config))
 
 
@@ -534,10 +556,11 @@ class Handler(BaseHTTPRequestHandler):
             role = str(body.get("role", ""))
             if role not in L.catalog():
                 return self.send(400, {"error": "Pick a workstation type."})
-            if len(my_machines(user)) >= L.settings()["staff_max_machines"]:
-                return self.send(409, {"error": "You have as many workstations as anyone can have."})
-            if in_use() >= L.settings()["max_guests"]:
-                return self.send(409, {"error": "The lab is full right now. Try again later."})
+            queued = [m for m in my_machines(user) if not m["host"]]
+            if queued:
+                return self.send(409, {"error": "Your last request is still being set up. Try again in a moment."})
+            if (why := L.admission(role, owner=user)):
+                return self.send(409, {"error": why[0].upper() + why[1:] + "."})
             request({"action": "staff-create", "user": user, "role": role})
             return self.send(200, {"ok": True})
         if path == "/api/me/key":
@@ -553,13 +576,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/me/delete":
             request({"action": "staff-delete", "user": user, "host": host})
             return self.send(200, {"ok": True})
+        if path == "/api/me/power":
+            action = str(body.get("action", ""))
+            if action not in L.Proxmox.POWER:
+                return self.send(400, {"error": "Unknown action."})
+            if mine[host]["state"] != "ready" or mine[host].get("power_action"):
+                return self.send(409, {"error": "Wait for the workstation to finish what it's doing."})
+            request({"action": "staff-power", "user": user, "host": host, "op": action})
+            return self.send(200, {"ok": True})
         if path == "/api/me/connect":
-            r = L.guests()[host]
+            r, desktop = L.guests()[host], body.get("mode") == "desktop"
             if r.get("state") != "ready":
                 return self.send(409, {"error": "The workstation isn't ready yet."})
-            client = base64.b64encode(f"{host}\0c\0json".encode()).decode()     # see connect() below
-            data = guacamole_login(r, with_password=False)
-            return self.send(200, {"url": f"/guacamole/#/client/{client}?data=" + quote(data, safe="")})
+            if mine[host].get("power") != "running":
+                return self.send(409, {"error": "The workstation is asleep or off. Start it first."})
+            if desktop and mine[host]["kind"] != "desktop":
+                return self.send(400, {"error": "This workstation has no desktop: open its terminal."})
+            return self.send(200, {"url": guacamole_url(*guacamole_login(r, with_password=False, desktop=desktop))})
         return self.send(404, {"error": "not found"})
 
     def staff_cookie(self, user):
@@ -600,8 +633,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, {"error": "Your password needs " + "; ".join(problems) + "."})
         if pubkey and not PUBKEY.fullmatch(pubkey):
             return self.send(400, {"error": "That doesn't look like an SSH public key (the one line in the .pub file)."})
-        if in_use() >= L.settings()["max_guests"]:
-            return self.send(409, {"error": "The lab is full right now. Try again later."})
+        if (why := L.admission(role, owner=user)):
+            return self.send(409, {"error": why[0].upper() + why[1:] + "."})
         if p:   # spend the link: O_EXCL makes it single-use even if two tabs race
             try:
                 os.close(os.open(L.INVITES / f"{user}.used", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640))
@@ -651,16 +684,11 @@ class Handler(BaseHTTPRequestHandler):
         if r.get("state") != "ready":
             return self.send(409, {"error": "The workstation isn't ready yet."})
         try:
-            data = guacamole_login(r)
+            url = guacamole_url(*guacamole_login(r))
         except Exception as e:                                         # noqa: BLE001
             print(f"connect failed for {r['host']}: {e!r}", flush=True)
             return self.send(500, {"error": "Couldn't create the connection."})
-        # Straight to the connection's own page. Guacamole's home page only jumps into a
-        # lone connection on a fresh login; with a session already open it shows "No
-        # recent connections". The id is Guacamole's client identifier:
-        # base64 of "<connection>\0c\0<data source>".
-        client = base64.b64encode(f"{r['host']}\0c\0json".encode()).decode()
-        self.send(200, {"url": f"/guacamole/#/client/{client}?data=" + quote(data, safe="")})
+        self.send(200, {"url": url})
 
     def log_message(self, fmt, *args):   # one line per request in the journal; no tokens in URLs
         print(f"{self.command} {self.path.split('?')[0][:40]} {args[1] if len(args) > 1 else ''}", flush=True)

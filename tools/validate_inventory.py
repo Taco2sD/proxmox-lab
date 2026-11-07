@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "ansible" / "roles" / "runner" / "files"))
 import lablib as L  # noqa: E402
 
-REQUIRED = {"name": str, "description": str, "tools": list, "packages": list, "login_groups": list, "size": dict}
+REQUIRED = {"kind": str, "name": str, "description": str, "tools": list, "packages": list, "login_groups": list, "size": dict}
 
 
 def main():
@@ -24,6 +24,8 @@ def main():
         for key, kind in REQUIRED.items():
             if not isinstance(entry.get(key), kind):
                 problems.append(f"catalog/{role}.yml: '{key}' missing or not a {kind.__name__}")
+        if entry.get("kind") not in cfg["staff_limits"]:
+            problems.append(f"catalog/{role}.yml: kind must be one of {', '.join(cfg['staff_limits'])}")
         if set(entry.get("size") or {}) != {"cores", "memory_mb", "disk_gb"}:
             problems.append(f"catalog/{role}.yml: size needs cores, memory_mb, disk_gb")
     teams = L.teams(REPO)

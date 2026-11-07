@@ -8,6 +8,8 @@
 #   - the workstation itself (ansible-pull): packages, via roles/workstation_role, and
 #     login_groups, via roles/ad_join
 # Checked by tools/validate_inventory.py.
+# A graphical desktop (roles/desktop: XFCE, opened in the browser over RDP)
+kind: desktop
 name: Artist
 description: Ubuntu 26.04 with image and video tools.
 tools: [ImageMagick, FFmpeg]

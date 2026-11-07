@@ -35,6 +35,10 @@ autoinstall:
     layout:
       name: lvm
       sizing-policy: all
+  # Ubuntu's minimal server: no docs, no extra daemons. Everything a workstation needs
+  # on top comes from Ansible (roles/base, ad_join, desktop, catalog/ packages).
+  source:
+    id: ubuntu-server-minimal
   packages:
     - qemu-guest-agent
     - ansible-core

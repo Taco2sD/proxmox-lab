@@ -252,7 +252,9 @@ function buildView(s) {
       heading.textContent = "Your workstation is ready";
       doing.textContent = `${m.host} · ${m.ip}`; left.textContent = "";
       actions.replaceChildren(el("a", { class: "button ghost", href: "/my" }, "Go to My lab"),
-        el("button", { class: "primary", onclick: () => openConsole(m.host) }, "Open console"));
+        m.kind === "desktop" ? el("button", { class: "ghost", onclick: () => openConsole(m.host, "terminal") }, "Open terminal") : null,
+        el("button", { class: "primary", onclick: () => openConsole(m.host, m.kind === "desktop" ? "desktop" : "terminal") },
+           m.kind === "desktop" ? "Open desktop" : "Open terminal"));
       return;
     }
     doing.textContent = signup_pending ? "Sending your request…" : pr.doing + "…";
@@ -262,9 +264,9 @@ function buildView(s) {
   tick();
 }
 
-async function openConsole(host) {
+async function openConsole(host, mode) {
   const w = window.open("", "_blank");
-  const r = await api("/api/me/connect", { admin: true, body: { host } });
+  const r = await api("/api/me/connect", { admin: true, body: { host, mode } });
   if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the console."); }
   if (w) w.location = r.data.url; else location = r.data.url;
 }

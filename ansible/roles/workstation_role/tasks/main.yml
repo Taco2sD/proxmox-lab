@@ -9,6 +9,11 @@
   ansible.builtin.set_fact:
     workstation_def: "{{ catalog[workstation_role_name] }}"
 
+- name: The desktop, for graphical workstations (kind desktop)
+  ansible.builtin.include_role:
+    name: desktop
+  when: workstation_def.kind | default('') == 'desktop'
+
 - name: Install the packages for {{ workstation_def.name }}
   ansible.builtin.apt:
     name: "{{ workstation_def.packages }}"

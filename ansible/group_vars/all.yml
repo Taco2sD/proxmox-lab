@@ -57,11 +57,20 @@ pve_bridge: vmbr0
 # Fleet machines (inventory/workstations/) use the fleet range, machines requested
 # through the portal the guest range. tools/validate_inventory.py enforces all of this.
 fleet_vmids: [121, 129]
-guest_vmids: [131, 139]
+guest_vmids: [131, 159]
 # Machines in the guest range at once: visitors' (ws-<username>) and staff members'
-# (ws<NN>, from the welcome page). pve01 has room for about six more 3 GB machines.
-max_guests: 6
-staff_max_machines: 3     # per person
+# (ws<NN>, from the welcome page). Admission is by memory first: a new machine must fit
+# in guest_memory_mb with all the others (catalog/<role>.yml: size.memory_mb), which
+# leaves pve01 room for dc01, mgmt01 and itself. max_guests is the count cap on top.
+guest_memory_mb: 18432
+max_guests: 12
+# Per person, by kind of workstation (catalog/<role>.yml: kind): one graphical desktop,
+# and up to four headless dev/jump boxes
+staff_limits: {desktop: 1, headless: 4}
+# Staff machines nobody has had a session on for this long are hibernated (suspended
+# to disk: they resume exactly where they were). Workstations report sessions every
+# five minutes (roles/base: lab-activity).
+idle_hibernate_minutes: 60
 
 # The golden image every workstation is cloned from (`lab image build`). Two VM IDs, so
 # a new image is built next to the current one and only replaces it once it's done.

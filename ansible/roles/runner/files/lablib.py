@@ -51,6 +51,7 @@ TOFU_STATE = STATE / "tofu"          # OpenTofu state: fleet.tfstate, guest-<hos
 AUDIT = STATE / "audit.jsonl"        # append-only record of every operation step
 OBSERVED = STATE / "observed.json"   # what Proxmox reports (worker.py, every minute)
 CHECKINS = STATE / "checkins.json"   # last finished configuration run per workstation IP
+ACTIVITY = STATE / "activity.json"   # last report of a session (SSH, desktop) per workstation IP
 IMAGE = STATE / "image.json"         # the current golden image (lab image build)
 RECONCILE = STATE / "reconcile.json"  # the reconciler's last run, and destroys awaiting approval
 PAUSED = STATE / "reconcile.paused"   # exists: the reconciler does nothing (docs/operations.md)
@@ -271,6 +272,30 @@ def guest_phase(host, phase, **fields):
             r.setdefault("phases", {}).setdefault(phase, time.time())
         r.update(fields)
     return update_json(guest_path(host), change)
+
+
+def admission(role, cat=None, cfg=None, owner=None):
+    """Why a new guest machine of this role can't be built now, or None if it can:
+    the person's limit for its kind (staff_limits: one desktop, four headless), the
+    lab's count cap, and above all memory: every active guest's size.memory_mb plus
+    the new one must fit in guest_memory_mb. Checked by the web side before it asks
+    and by the worker again before it builds."""
+    cat, cfg = cat or catalog(), cfg or settings()
+    active = [r for r in guests().values() if not r.get("rejected") and r.get("state") != "removing"]
+    if owner:
+        kind = cat[role]["kind"]
+        mine = [r for r in active if r.get("staff") and r.get("owner") == owner
+                and cat.get(r.get("role"), {}).get("kind") == kind]
+        if len(mine) >= cfg["staff_limits"][kind]:
+            n = cfg["staff_limits"][kind]
+            return f"you have {n} {kind} workstation{'s' if n != 1 else ''} already, the most anyone can have"
+    if len(active) >= cfg["max_guests"]:
+        return f"the lab is full ({cfg['max_guests']} machines)"
+    used = sum(cat.get(r.get("role"), {}).get("size", {}).get("memory_mb", 0) for r in active)
+    if used + cat[role]["size"]["memory_mb"] > cfg["guest_memory_mb"]:
+        free = max(0, cfg["guest_memory_mb"] - used)
+        return f"the lab has {free} MB of memory left, and this workstation needs {cat[role]['size']['memory_mb']} MB"
+    return None
 
 
 def free_guest_vmid(cfg, taken):
@@ -578,10 +603,28 @@ class Proxmox:
         raise TimeoutError(f"Proxmox task still running after {timeout}s: {upid}")
 
     def vms(self):
-        """{vmid: {name, status, tags, template}} for every VM on the node."""
+        """{vmid: {name, status, power, tags, template}} for every VM on the node.
+        power is what people see: running, paused, hibernated (suspended to disk:
+        stopped, with its memory saved and the "suspended" lock) or stopped."""
         found = {}
         for v in self.call("GET", f"/nodes/{self.node}/qemu") or []:
-            found[int(v["vmid"])] = {"name": v.get("name"), "status": v.get("status"),
+            status, lock = v.get("status"), v.get("lock")
+            power = ("hibernated" if lock == "suspended" else
+                     "paused" if status == "running" and v.get("qmpstatus") == "paused" else status)
+            found[int(v["vmid"])] = {"name": v.get("name"), "status": status, "power": power,
                                      "tags": [t for t in (v.get("tags") or "").split(";") if t],
                                      "template": bool(v.get("template"))}
         return found
+
+    # Power, as Proxmox names it. Hibernate = suspend to disk (VMware's "suspend"): the
+    # memory goes to the VM's storage and the VM stops, freeing its RAM; start brings it
+    # back exactly where it was. Shutdown asks the guest (ACPI, the guest agent) nicely.
+    POWER = {"start": ("start", {}), "shutdown": ("shutdown", {"timeout": "120"}),
+             "reboot": ("reboot", {}), "hibernate": ("suspend", {"todisk": "1"})}
+
+    def power(self, vmid, action, wait=True):
+        what, data = self.POWER[action]
+        upid = self.call("POST", f"/nodes/{self.node}/qemu/{int(vmid)}/status/{what}", data)
+        if wait:
+            self.wait(upid, timeout=300)
+        return upid

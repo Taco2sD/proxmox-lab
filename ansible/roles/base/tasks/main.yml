@@ -37,6 +37,56 @@
   register: osc_divert
   changed_when: "'Adding' in osc_divert.stdout"
 
+- name: Activity beacon (someone is connected over SSH or RDP)
+  ansible.builtin.copy:
+    dest: /usr/local/libexec/lab-activity
+    content: |
+      #!/bin/sh
+      # Managed by Ansible (base role). Run every five minutes by lab-activity.timer:
+      # while anyone is connected (an SSH or RDP connection, including the browser
+      # terminal and desktop through Guacamole), tell mgmt01. The portal's worker
+      # hibernates staff machines that haven't reported for idle_hibernate_minutes
+      # (ansible/group_vars/all.yml); they resume exactly where they were.
+      if [ -n "$(ss -Htn state established '( sport = :22 or sport = :3389 )')" ]; then
+          exec curl -fsS -o /dev/null --max-time 10 "https://{{ lab_fqdn }}/lab-events/active"
+      fi
+    mode: "0755"
+
+- name: Activity beacon units
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: lab-activity.service
+      content: |
+        # Managed by Ansible (base role): see /usr/local/libexec/lab-activity
+        [Unit]
+        Description=Tell mgmt01 whether anyone is connected
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/libexec/lab-activity
+    - name: lab-activity.timer
+      content: |
+        # Managed by Ansible (base role)
+        [Unit]
+        Description=Report sessions to mgmt01 every five minutes
+        [Timer]
+        OnBootSec=2min
+        OnUnitActiveSec=5min
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  register: activity_units
+
+- name: Activity beacon timer running
+  ansible.builtin.systemd_service:
+    name: lab-activity.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ activity_units.changed }}"
+
 - name: Install the ansible-pull service and timer
   ansible.builtin.template:
     src: "{{ item }}.j2"

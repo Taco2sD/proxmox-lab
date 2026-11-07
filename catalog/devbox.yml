@@ -1,0 +1,13 @@
+# The "devbox": a headless dev/jump box. Same shape and same readers as
+# catalog/artist.yml (see its header). The lab's minimal Ubuntu image plus the basics
+# from roles/base, nothing else: a shell to work from, reached over SSH or the browser
+# terminal. People may have up to four (staff_limits in ansible/group_vars/all.yml).
+kind: headless
+name: Dev box
+description: Minimal Ubuntu 26.04, headless. A shell to build, script and hop from.
+tools: [Git, tmux, Vim, Ansible]
+packages: [tmux]
+login_groups: [security-engineering, security-it]
+# The disk can't be smaller than the image's (24 GB, thin-provisioned: only what's
+# written takes space)
+size: {cores: 1, memory_mb: 1024, disk_gb: 24}

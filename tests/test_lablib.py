@@ -62,6 +62,22 @@ class Records(unittest.TestCase):
         for p in L.GUESTS.glob("*.json"):
             p.unlink()
 
+    def test_admission_limits_by_kind_and_memory(self):
+        def have(host, vmid, role, owner="pim", staff=True, state="ready"):
+            L.write_json(L.guest_path(host), {"host": host, "state": state, "owner": owner, "staff": staff,
+                                              **ws(vmid), "role": role})
+        self.assertIsNone(L.admission("artist", CAT, CFG, owner="pim"))
+        have("ws31", 131, "artist")
+        self.assertIn("1 desktop", L.admission("designer", CAT, CFG, owner="pim"))   # one desktop each
+        self.assertIsNone(L.admission("designer", CAT, CFG, owner="kim"))            # someone else may
+        for i in range(4):
+            have(f"ws3{2 + i}", 132 + i, "devbox")
+        self.assertIn("4 headless", L.admission("devbox", CAT, CFG, owner="pim"))
+        have("ws36", 136, "devbox", state="removing")                                 # going: doesn't count
+        cfg = {**CFG, "guest_memory_mb": 3072 + 4 * 1024 + 2048}
+        self.assertIsNone(L.admission("devbox", CAT, cfg, owner="kim"))
+        self.assertIn("memory", L.admission("artist", CAT, cfg, owner="kim"))          # 3 GB won't fit
+
     def test_desired_skips_removed_and_rejected(self):
         for host, state, extra in (("ws-ann", "ready", {}), ("ws-bob", "removing", {}),
                                    ("ws-cat", "failed", {"rejected": True})):
@@ -86,7 +102,8 @@ class Records(unittest.TestCase):
 
     def test_free_guest_vmid(self):
         self.assertEqual(L.free_guest_vmid(CFG, {131, 132}), 133)
-        self.assertIsNone(L.free_guest_vmid(CFG, set(range(131, 140))))
+        low, high = CFG["guest_vmids"]
+        self.assertIsNone(L.free_guest_vmid(CFG, set(range(low, high + 1))))   # full
 
 
 class Parsers(unittest.TestCase):

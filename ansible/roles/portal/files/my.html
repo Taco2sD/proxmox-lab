@@ -7,9 +7,11 @@
        - their SSH key: the one sshd on every workstation they own asks mgmt01 for
          (roles/ad_join, lab-keys.conf); add, replace or remove it here
        - their workstations, each with build progress, virtual hardware and software
-         (catalog/<role>.yml), address, last configuration run, and its console
-         (the browser terminal) and an SSH command for their laptop
-       - New workstation: any role, up to staff_max_machines (ansible/group_vars/all.yml)
+         (catalog/<role>.yml), address, last configuration run, power (start, shut
+         down, restart, hibernate) and its consoles: the desktop (RDP) for graphical
+         workstations, the terminal (SSH) for all, and an SSH command for their laptop
+       - New workstation: one desktop and up to four headless boxes (staff_limits in
+         ansible/group_vars/all.yml); the lab admits it if its memory fits
      portal.py fills in __CONFIG__ (roles with size and tools, teams, build steps, limit).
      Shared look and helpers: /static/common.css and /static/common.js. -->
 <html lang="en"><head><meta charset="utf-8">
@@ -37,7 +39,12 @@ table.facts td { padding:4px 0; }
 .cmd { display:flex; gap:8px; align-items:center; }
 .cmd code { flex:1; background:var(--soft); border-radius:6px; padding:6px 8px; font-size:.82rem; overflow-x:auto; white-space:nowrap; }
 .cmd button { padding:4px 10px; font-size:.8rem; }
-.foot { display:flex; gap:8px; justify-content:flex-end; margin-top:auto; flex-wrap:wrap; }
+.foot { display:flex; gap:8px; justify-content:flex-end; margin-top:auto; flex-wrap:wrap; align-items:center; }
+.foot .spacer { flex:1; }
+.foot select { font:inherit; padding:7px 8px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:inherit; }
+.kindhead { font-weight:600; margin:14px 0 2px; } .kindhead:first-child { margin-top:4px; }
+.role.off { opacity:.5; cursor:not-allowed; }
+.status.hibernated, .status.off { color:var(--muted); }
 .doing { font-size:.85rem; display:flex; justify-content:space-between; gap:8px; }
 .error { color:var(--bad); font-size:.875rem; }
 .empty { text-align:center; padding:48px 16px; border:1px dashed var(--line); border-radius:14px; }
@@ -120,7 +127,7 @@ async function load() {
   state = r.data;
   render();
   const busy = state.signup_pending || state.onboarding.state === "account"
-            || state.machines.some(m => m.state === "building" || m.state === "removing");
+            || state.machines.some(m => m.state === "building" || m.state === "removing" || m.power_action);
   timer = setTimeout(load, busy ? 2000 : 20000);
 }
 
@@ -129,7 +136,8 @@ function render() {
   $("#signout").hidden = false;
   $("#title").textContent = person?.name || user;
   $("#subtitle").textContent = [person?.title, person?.team_name].filter(Boolean).join(" · ") || "My lab";
-  const full = machines.length >= CONFIG.max_machines;
+  const counts = kindCounts();
+  const full = Object.entries(CONFIG.limits).every(([k, n]) => counts[k] >= n);
   // replaceChildren() would print a null as the text "null": the optional notes go through el()
   view.replaceChildren(el("div", {},
     el("div", { class: "card" },
@@ -142,17 +150,35 @@ function render() {
         el("button", { class: "ghost", onclick: editKey }, key ? "Replace key" : "Add a key"))),
     onboarding.state === "failed" ? el("div", { class: "note bad error", style: "margin-top:16px" }, `Your account couldn't be set up: ${onboarding.error}`) : null,
     onboarding.error && onboarding.state !== "failed" ? el("p", { class: "error" }, `Your last request didn't go through: ${onboarding.error}.`) : null,
-    el("h2", { class: "section" }, `Workstations (${machines.length} of ${CONFIG.max_machines})`,
+    el("h2", { class: "section" },
+      el("span", {}, "Workstations ", el("span", { class: "muted small", style: "font-weight:400" },
+        Object.entries(CONFIG.limits).map(([k, n]) => `${KIND_NAME[k]} ${counts[k]} of ${n}`).join(" · "))),
       el("button", { class: "primary", disabled: full, title: full ? "You have as many as anyone can have" : "", onclick: newWorkstation }, "+ New workstation")),
     machines.length ? el("div", { class: "grid" }, machines.map(machineCard))
       : el("div", { class: "empty" }, el("p", {}, "No workstations yet."), el("button", { class: "primary", onclick: newWorkstation }, "Build your first"))));
 }
 
 const fact = (k, v) => el("div", {}, el("div", { class: "k" }, k), el("div", { class: "v" }, v || "–"));
+const KIND_NAME = { desktop: "Desktop", headless: "Headless" };
+function kindCounts() {
+  const c = Object.fromEntries(Object.keys(CONFIG.limits).map(k => [k, 0]));
+  for (const m of state.machines) if (m.state !== "removing" && c[m.kind] !== undefined) c[m.kind]++;
+  return c;
+}
+// What a machine is doing, as people say it: the build or removal first, then its power
+const POWER_DOING = { start: "Starting", shutdown: "Shutting down", reboot: "Restarting", hibernate: "Hibernating" };
+function statusOf(m) {
+  if (m.state !== "ready") return [m.state, { building: "Building", failed: "Failed", removing: "Deleting" }[m.state] || m.state];
+  if (m.power_action) return ["building", POWER_DOING[m.power_action.action] + "…"];
+  return { running: ["ready", "Running"], hibernated: ["hibernated", "Hibernated"], paused: ["hibernated", "Paused"],
+           stopped: ["off", "Off"] }[m.power] || ["ready", "Ready"];
+}
 
 function machineCard(m) {
   const role = CONFIG.roles[m.role] || {};
-  const status = { ready: "Ready", building: "Building", failed: "Failed", removing: "Deleting" }[m.state] || m.state;
+  const [cls, status] = statusOf(m);
+  const up = m.state === "ready" && m.power === "running" && !m.power_action;
+  const down = m.state === "ready" && ["hibernated", "stopped", "paused"].includes(m.power) && !m.power_action;
   let progress = null;
   if (m.state === "building") {
     const pr = buildProgress(CONFIG.phases.map(p => p[0]), m.phases || {});
@@ -163,37 +189,66 @@ function machineCard(m) {
   return el("div", { class: "card ws" },
     el("div", { class: "ws-head" },
       el("div", {}, el("h3", {}, `${roleName(m.role)} workstation`), el("div", { class: "host mono" }, m.host ? `${m.host}${m.ip ? " · " + m.ip : ""}` : "being set up")),
-      el("span", { class: `status ${m.state}` }, status)),
+      el("span", { class: `status ${cls}` }, status)),
     progress,
     m.error ? el("div", { class: "error" }, m.error) : null,
+    m.power_error ? el("div", { class: "error" }, m.power_error) : null,
+    m.power === "hibernated" ? el("div", { class: "small muted" }, "Asleep, with everything as you left it. Start brings it back exactly there.") : null,
     el("table", { class: "facts" }, el("tbody", {},
       el("tr", {}, el("th", {}, "Hardware"), el("td", {}, specs(role.size))),
-      el("tr", {}, el("th", {}, "System"), el("td", {}, "Ubuntu 26.04, joined to AD")),
+      el("tr", {}, el("th", {}, "System"), el("td", {}, role.kind === "desktop" ? "Ubuntu 26.04 minimal, XFCE desktop, in AD"
+                                                                                : "Ubuntu 26.04 minimal, headless, in AD")),
       el("tr", {}, el("th", {}, "Software"), el("td", {}, el("div", { class: "chips" }, (role.tools || []).map(t => el("span", { class: "chip" }, t))))),
       m.phases?.queued ? el("tr", {}, el("th", {}, "Created"), el("td", {}, new Date(m.phases.queued * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))) : null,
       m.checkin ? el("tr", {}, el("th", {}, "Last configured"), el("td", {}, ago(m.checkin))) : null)),
-    ssh && m.state === "ready" ? el("div", { class: "cmd" }, el("code", {}, ssh),
+    ssh && up ? el("div", { class: "cmd" }, el("code", {}, ssh),
       el("button", { class: "ghost", onclick: () => navigator.clipboard.writeText(ssh).then(() => toast("Copied.")) }, "Copy")) : null,
     el("div", { class: "foot" },
-      m.host && m.state !== "removing" ? el("button", { class: "ghost", onclick: () => remove(m) }, "Delete") : null,
-      m.state === "ready" ? el("button", { class: "primary", onclick: () => openConsole(m.host) }, "Open console") : null));
+      m.host && m.state !== "removing" && !m.power_action ? el("button", { class: "ghost", onclick: () => remove(m) }, "Delete") : null,
+      up ? powerMenu(m) : null,
+      el("span", { class: "spacer" }),
+      down ? el("button", { class: "primary", onclick: () => power(m, "start") }, m.power === "hibernated" ? "Wake up" : "Start") : null,
+      up ? el("button", { class: role.kind === "desktop" ? "ghost" : "primary", onclick: () => openConsole(m.host, "terminal") }, "Terminal") : null,
+      up && role.kind === "desktop" ? el("button", { class: "primary", onclick: () => openConsole(m.host, "desktop") }, "Desktop") : null));
+}
+
+function powerMenu(m) {
+  const pick = el("select", { "aria-label": "Power", onchange: e => { const a = e.target.value; e.target.value = ""; if (a) power(m, a); } },
+    el("option", { value: "" }, "Power…"), el("option", { value: "hibernate" }, "Hibernate"),
+    el("option", { value: "reboot" }, "Restart"), el("option", { value: "shutdown" }, "Shut down"));
+  return pick;
+}
+
+async function power(m, action) {
+  if (action === "shutdown" && !confirm(`Shut down ${m.host}? Unsaved work in open programs is lost. (Hibernate keeps it.)`)) return;
+  const r = await api("/api/me/power", { admin: true, body: { host: m.host, action } });
+  toast(r.ok ? `${POWER_DOING[action]} ${m.host}.` : r.data.error || "That didn't work.");
+  load();
 }
 
 // ---------------------------------------------------------------- actions
-async function openConsole(host) {
+async function openConsole(host, mode) {
   const w = window.open("", "_blank");
-  const r = await api("/api/me/connect", { admin: true, body: { host } });
+  const r = await api("/api/me/connect", { admin: true, body: { host, mode } });
   if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the console."); }
   if (w) w.location = r.data.url; else location = r.data.url;
 }
 
 function newWorkstation() {
-  const mine = state.person?.role;
-  $("#new-count").textContent = `You have ${state.machines.length} of ${CONFIG.max_machines}. Pick what your work needs.`;
-  $("#roles").replaceChildren(...Object.entries(CONFIG.roles).map(([k, r]) => el("label", { class: "role" },
-    el("input", { type: "radio", name: "role", value: k, checked: k === mine }),
-    el("div", {}, el("b", {}, r.name + (k === mine ? " (your team's)" : "")), el("div", { class: "small muted" }, r.desc),
-       el("div", { class: "small" }, specs(r.size)), el("div", { class: "chips", style: "margin-top:6px" }, r.tools.map(t => el("span", { class: "chip" }, t)))))));
+  const mine = state.person?.role, counts = kindCounts();
+  $("#new-count").textContent = `One desktop each, and up to ${CONFIG.limits.headless} headless boxes. `
+    + `Idle machines hibernate after ${CONFIG.idle_minutes} minutes without a connection.`;
+  const groups = Object.keys(CONFIG.limits).map(kind => {
+    const full = counts[kind] >= CONFIG.limits[kind];
+    const roles = Object.entries(CONFIG.roles).filter(([, r]) => r.kind === kind);
+    return [el("div", { class: "kindhead" }, `${KIND_NAME[kind]} ${kind === "desktop" ? "workstation" : "dev/jump box"}`,
+              el("span", { class: "muted small", style: "font-weight:400" }, full ? `  · you have ${counts[kind]} of ${CONFIG.limits[kind]}` : "")),
+            ...roles.map(([k, r]) => el("label", { class: "role" + (full ? " off" : "") },
+      el("input", { type: "radio", name: "role", value: k, disabled: full, checked: !full && k === mine }),
+      el("div", {}, el("b", {}, r.name + (k === mine ? " (your team's)" : "")), el("div", { class: "small muted" }, r.desc),
+         el("div", { class: "small" }, specs(r.size)), el("div", { class: "chips", style: "margin-top:6px" }, r.tools.map(t => el("span", { class: "chip" }, t))))))];
+  });
+  $("#roles").replaceChildren(...groups.flat());
   $("#new").showModal();
 }
 $("#new").addEventListener("close", async () => {

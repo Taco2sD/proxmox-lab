@@ -99,8 +99,8 @@ def create(req):
         return reject(req, f"an account called '{req['user']}' already exists in AD")
     active = [r for r in existing.values() if not r.get("rejected")]
     vmid = L.free_guest_vmid(cfg, {r["vmid"] for r in active})
-    if vmid is None or len(active) >= cfg["max_guests"]:
-        return reject(req, f"the lab is full ({cfg['max_guests']} guest workstations)")
+    if (why := L.admission(req["role"], cfg=cfg)) or vmid is None:
+        return reject(req, why or "the lab is full")
     L.write_json(L.guest_path(host), {
         "host": host, "owner": req["user"], "role": req["role"], "vmid": vmid,
         **L.address_for(vmid, cfg), "token_sha256": req["token_sha256"], "state": "building",
@@ -130,18 +130,58 @@ def staff_create(user, role, queued):
     """Another workstation for a staff member (their first comes with the sign-up)."""
     cfg, existing = L.settings(), L.guests()
     active = [r for r in existing.values() if not r.get("rejected")]
-    mine = [r for r in active if r.get("staff") and r.get("owner") == user]
-    if len(mine) >= cfg["staff_max_machines"]:
-        return onboarding(user, error=f"you have {len(mine)} workstations already, the most anyone can have")
     vmid = L.free_guest_vmid(cfg, {r["vmid"] for r in active})
-    if vmid is None or len(active) >= cfg["max_guests"]:
-        return onboarding(user, error="the lab is full right now; try again later")
+    if (why := L.admission(role, cfg=cfg, owner=user)) or vmid is None:
+        return onboarding(user, error=why or "the lab is full right now; try again later")
     host = L.staff_host(vmid)
     L.write_json(L.guest_path(host), {
         "host": host, "owner": user, "role": role, "vmid": vmid, "staff": True, **L.address_for(vmid, cfg),
         "state": "building", "error": None, "phases": {"queued": queued}})
     onboarding(user, error=None)
     launch(L.new_op("guest-create", f"staff {user}", [host]))
+
+
+# ---------------------------------------------------------------- power (My lab, idle machines)
+def power(host, action, actor):
+    """Start, shut down, restart or hibernate a guest machine, in the background (a
+    hibernation writes the machine's memory to disk: tens of seconds). The record says
+    what's under way, so My lab can show it; Proxmox's answer lands in observed.json."""
+    r = L.read_json(L.guest_path(host)) or {}
+    if not r.get("vmid") or r.get("state") != "ready" or r.get("power_action"):
+        return
+    L.guest_phase(host, None, power_action={"action": action, "time": time.time(), "by": actor}, power_error=None)
+    L.audit("power", host=host, action=action, by=actor)
+
+    def run():
+        error = None
+        try:
+            L.Proxmox().power(r["vmid"], action)
+        except Exception as e:                      # noqa: BLE001
+            error = f"{action} failed: {e}"
+            log(f"{host}: {error}")
+        extra = {"resumed": time.time()} if action == "start" and not error else {}
+        L.guest_phase(host, None, power_action=None, power_error=error, **extra)
+        observe_vms()
+        log(f"{host}: {action} by {actor}: {'failed' if error else 'done'}")
+    threading.Thread(target=run, daemon=True).start()
+
+
+def hibernate_idle():
+    """Staff machines nobody has had a session on for idle_hibernate_minutes go to
+    sleep (hibernate: suspended to disk, so they resume exactly where they were and
+    free their memory meanwhile). Sessions are reported by the machines themselves
+    (roles/base: lab-activity, every five minutes while someone is logged in)."""
+    cfg = L.settings()
+    limit = cfg["idle_hibernate_minutes"] * 60
+    vms = (L.read_json(L.OBSERVED) or {}).get("vms", {})
+    activity = L.read_json(L.ACTIVITY) or {}
+    for host, r in L.guests().items():
+        vm = vms.get(str(r.get("vmid")))
+        if not r.get("staff") or r.get("state") != "ready" or not vm or vm.get("power") != "running":
+            continue
+        last = max(activity.get(r["ip"], 0), r.get("phases", {}).get("ready", 0), r.get("resumed", 0))
+        if time.time() - last > limit:
+            power(host, "hibernate", f"idle for {cfg['idle_hibernate_minutes']} minutes")
 
 
 def take_signups():
@@ -195,6 +235,10 @@ def handle(req):
         create(req)
     elif action == "staff-create":                       # a signed-in staff member (checked by the web side)
         staff_create(req["user"], req["role"], req["time"])
+    elif action == "staff-power":                        # the owner (checked by the web side, and here)
+        r = L.read_json(L.guest_path(req.get("host", ""))) or {}
+        if r.get("staff") and r.get("owner") == req.get("user") and req.get("op") in L.Proxmox.POWER:
+            power(r["host"], req["op"], f"staff {req['user']}")
     elif action == "staff-key" and L.USER_RE.fullmatch(req.get("user", "")):
         set_key(req["user"], req.get("pubkey", ""))
     elif action == "staff-delete":
@@ -262,6 +306,8 @@ def on_event(e):
     ip, uri, ok = e["ip"], e["uri"], e["status"] in (200, 204)
     if uri == "/lab-events/configured" and ok:
         L.update_json(L.CHECKINS, lambda c: c.update({ip: time.time()}), default={})
+    if uri == "/lab-events/active" and ok:          # someone has a session (roles/base: lab-activity)
+        L.update_json(L.ACTIVITY, lambda c: c.update({ip: time.time()}), default={})
     for host, r in L.guests().items():
         # (The clone can fetch its password before OpenTofu reports "created", so only
         # require that its identity exists.)
@@ -278,13 +324,17 @@ def on_event(e):
 
 
 # ---------------------------------------------------------------- periodic checks
-def observe():
-    """What Proxmox has, for the admin page (fleet machines have no build record), and
-    who AD has, for the welcome page's lookups."""
+def observe_vms():
     try:
         L.write_json(L.OBSERVED, {"time": time.time(), "vms": {str(k): v for k, v in L.Proxmox().vms().items()}})
     except Exception as e:                              # noqa: BLE001
         log(f"observe: {e!r}")
+
+
+def observe():
+    """What Proxmox has (status and power, for the admin page and My lab; fleet
+    machines have no build record), and who AD has, for the welcome page's lookups."""
+    observe_vms()
     try:
         L.export_people()
     except Exception as e:                              # noqa: BLE001
@@ -337,6 +387,7 @@ def main():
             path.unlink(missing_ok=True)
         if time.time() - last_observe > OBSERVE_EVERY:
             observe()
+            hibernate_idle()
             last_observe = time.time()
         fail_stalled()
         reap_ops()

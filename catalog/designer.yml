@@ -1,5 +1,7 @@
 # The "designer" workstation, for game design and narrative. Same shape and same
 # readers as catalog/artist.yml (see its header).
+# A graphical desktop (roles/desktop: XFCE, opened in the browser over RDP)
+kind: desktop
 name: Designer
 description: Ubuntu 26.04 with level and flow design tools.
 tools: [Tiled, Graphviz]

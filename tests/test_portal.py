@@ -68,14 +68,23 @@ class GuacamoleLogin(unittest.TestCase):
         portal.JSON_KEY = tmp / "key"
         L.PASSWORDS.mkdir(parents=True, exist_ok=True)
         (L.PASSWORDS / "gus").write_text("pw")
-        blob = base64.b64decode(portal.guacamole_login({"owner": "gus", "host": "ws-gus", "ip": "10.10.10.31"}))
         key = bytes.fromhex((tmp / "key").read_text())
-        d = Cipher(algorithms.AES(key), modes.CBC(bytes(16))).decryptor()
-        u = padding.PKCS7(128).unpadder()
-        plain = u.update(d.update(blob) + d.finalize()) + u.finalize()
-        sig, payload = plain[:32], plain[32:]
-        self.assertEqual(sig, hmac.new(key, payload, hashlib.sha256).digest())
-        self.assertEqual(json.loads(payload)["connections"]["ws-gus"]["parameters"]["hostname"], "10.10.10.31")
+
+        def open_login(**kw):
+            name, data = portal.guacamole_login({"owner": "gus", "host": "ws-gus", "ip": "10.10.10.31"}, **kw)
+            d = Cipher(algorithms.AES(key), modes.CBC(bytes(16))).decryptor()
+            u = padding.PKCS7(128).unpadder()
+            plain = u.update(d.update(base64.b64decode(data)) + d.finalize()) + u.finalize()
+            sig, payload = plain[:32], plain[32:]
+            self.assertEqual(sig, hmac.new(key, payload, hashlib.sha256).digest())
+            return json.loads(payload)["connections"][name]
+
+        ssh = open_login()
+        self.assertEqual((ssh["protocol"], ssh["parameters"]["hostname"], ssh["parameters"]["password"]),
+                         ("ssh", "10.10.10.31", "pw"))
+        rdp = open_login(with_password=False, desktop=True)      # staff: xrdp asks for the password
+        self.assertEqual((rdp["protocol"], rdp["parameters"]["port"]), ("rdp", "3389"))
+        self.assertNotIn("password", rdp["parameters"])
 
 
 if __name__ == "__main__":
