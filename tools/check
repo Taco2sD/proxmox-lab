@@ -16,9 +16,21 @@ groups=("$@")
 failed=()
 
 run() {   # run <group> <command...>: print a header, remember failures
-  local group=$1; shift
+  local group=$1 out rc; shift
   echo "==> $group: $*"
-  "$@" || failed+=("$group")
+  out=$(mktemp)
+  "$@" 2>&1 | tee "$out"
+  rc=${PIPESTATUS[0]}
+  if [ "$rc" -ne 0 ]; then
+    failed+=("$group")
+    # On GitHub Actions, also report it as an annotation: the failing command and the
+    # end of its output, visible on the commit without opening the log.
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      printf '::error title=tools/check %s failed::%s%%0A%s\n' "$group" "$*" \
+        "$(tail -n 15 "$out" | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+    fi
+  fi
+  rm -f "$out"
 }
 
 for g in "${groups[@]}"; do
