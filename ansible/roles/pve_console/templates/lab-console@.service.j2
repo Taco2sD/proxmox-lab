@@ -2,6 +2,11 @@
 # connection from lab-console.socket, relayed by /usr/local/sbin/lab-console.
 [Unit]
 Description=Lab: a guest machine's screen for the portal
+# One instance per connection (Accept=yes), so a failed one would otherwise stay loaded
+# as a failed unit forever: 1,700 of them in a day once a browser kept reconnecting to a
+# hibernated machine (docs/kb/issues/KB-0001-console-relay-failed-units.md). Collected
+# when they end, failed or not; what happened stays in the journal.
+CollectMode=inactive-or-failed
 
 [Service]
 ExecStart=/usr/local/sbin/lab-console {{ console_port_base }} {{ guest_vmids[0] }} {{ guest_vmids[1] }}

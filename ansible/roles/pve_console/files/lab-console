@@ -4,7 +4,13 @@ machine's screen, started by lab-console.socket (one per connection). The port i
 in on says which VM: port - console_port_base. It then runs Proxmox's own console relay,
 `qm vncproxy` (what the Proxmox UI's console runs too), which sets the VM's VNC password
 to LC_PVE_TICKET (the shared secret, /etc/lab/console.env) and joins this connection to
-the VM's VNC socket."""
+the VM's VNC socket.
+
+A machine that isn't running (hibernated or shut down) has no screen to show. Browsers
+keep asking anyway: Guacamole's client reconnects on its own for as long as its login
+lasts (portal.py: guacamole_login, a working day), every few seconds
+(docs/kb/issues/KB-0001-console-relay-failed-units.md). So that case is answered here,
+cheaply, before `qm` (a Perl program: ~350 ms of CPU and ~120 MB per start) ever runs."""
 import os
 import socket
 import sys
@@ -16,4 +22,27 @@ s.detach()                                            # fd 0 stays open for qm
 vmid = port - BASE
 if not LOW <= vmid <= HIGH or not os.path.exists(f"/etc/pve/qemu-server/{vmid}.conf"):
     sys.exit(f"lab-console: no guest machine behind port {port}")
+
+
+def running(vmid):
+    """True while the VM's QEMU process exists: Proxmox writes its PID to
+    /var/run/qemu-server/<vmid>.pid at start. A paused VM still has its process (and a
+    screen); a hibernated or stopped one doesn't."""
+    try:
+        with open(f"/var/run/qemu-server/{vmid}.pid") as f:
+            os.kill(int(f.read().split()[0]), 0)
+        return True
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+if not running(vmid):
+    # Exit 0 on purpose: refusing a screen that is switched off is the relay working as
+    # intended, not a fault. The line below is the record (journalctl -u 'lab-console@*').
+    # Genuine faults (unknown port above, qm failing on a running VM) still exit non-zero,
+    # and lab-console@.service's CollectMode keeps even those from piling up as units.
+    print(f"lab-console: VM {vmid} is not running (hibernated or stopped); connection refused",
+          file=sys.stderr)
+    sys.exit(0)
+
 os.execv("/usr/sbin/qm", ["qm", "vncproxy", str(vmid)])
