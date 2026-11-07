@@ -133,6 +133,34 @@
     enabled: true
     state: started
 
+# Ubuntu's sssd package (2.12) also enables socket activation for the nss, pam and pac
+# responders (sssd-nss.socket and friends, WantedBy=sssd.service). sssd.conf above has
+# SSSD's own monitor start them instead ("services = nss, pam"; the AD provider adds
+# pac), and SSSD refuses to run a responder both ways: each socket's ExecStartPre
+# (sssd_check_socket_activated_responders) exits 17 with "Misconfiguration found for
+# the 'nss' responder", leaving three failed units on every workstation
+# (docs/kb/issues/KB-0002-sssd-responder-sockets-failed.md).
+# Masking the sockets keeps logins exactly as they have always worked (the
+# monitor-started responders serve NSS, PAM and the PAC); dropping "services =" for
+# socket activation would change how every login reaches SSSD for no gain on a machine
+# with a handful of users. The sudo, ssh and autofs sockets aren't in "services =", so
+# they stay socket-activated and healthy.
+- name: Turn off the responder sockets SSSD already runs itself (nss, pam, pac)
+  ansible.builtin.systemd_service:
+    name: "sssd-{{ item }}.socket"
+    masked: true
+  loop: [nss, pam, pac]
+
+# A masked unit keeps its "failed" state until it is reset; only reset when one is
+# still marked failed, so this reports no change on every other run
+- name: Clear the sockets' old failures  # noqa: command-instead-of-module (the systemd module has no reset-failed)
+  ansible.builtin.shell: |
+    systemctl is-failed --quiet sssd-nss.socket sssd-pam.socket sssd-pac.socket || exit 0
+    systemctl reset-failed sssd-nss.socket sssd-pam.socket sssd-pac.socket
+    echo cleared
+  register: sssd_sockets_reset
+  changed_when: "'cleared' in sssd_sockets_reset.stdout"
+
 - name: Is home-directory creation on first login enabled?
   ansible.builtin.command: grep -q pam_mkhomedir /etc/pam.d/common-session
   register: mkhomedir
