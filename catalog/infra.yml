@@ -1,0 +1,9 @@
+# The "infra" workstation, for IT and infrastructure. Same shape and same readers as
+# catalog/artist.yml (see its header). Its team (security-it) is nested in ws-admins,
+# so its people are admins on every workstation (inventory/teams.yml: admin).
+name: Infrastructure
+description: Ubuntu 26.04 with automation and network tools.
+tools: [Ansible, nmap, tcpdump, tmux]
+packages: [ansible, nmap, tcpdump, tmux]
+login_groups: [security-it]
+size: {cores: 2, memory_mb: 3072, disk_gb: 24}

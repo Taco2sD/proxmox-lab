@@ -9,6 +9,60 @@ Code: `ansible/roles/portal/` (web side, worker, pages) on top of the runner
 (`ansible/roles/runner/`: `lab` and `lablib.py`). Deployed with the servers
 (`ansible/site.yml`).
 
+## The studio's people: /welcome
+
+The second door, for staff rather than visitors. AD is the record of who works here;
+none of it is in git (the repository is public). Teams are: `inventory/teams.yml`
+defines them, and each becomes an AD security group, `security-<team>`, with a fixed
+gidNumber (roles/ad_people on dc01). Teams decide who may log in on fleet machines
+(`catalog/*.yml`: `login_groups`), each team's default workstation, and later who may
+reach which service VMs. Members of an `admin: true` team (IT) are nested in ws-admins.
+
+A new hire's welcome email gives them their username. On `/welcome`:
+
+1. **Look up.** The page finds the username in AD (`/var/lib/lab/people.json`, which
+   the worker exports from dc01 every minute: the web side can't reach AD) and shows
+   name, title, team, manager and workstation in a table.
+2. **Prove it's them.** Accounts the studio created ahead of time (`lab people seed`)
+   start *disabled*, with a password nobody knows. The email's one-time sign-up link
+   (`/welcome?u=<user>#t=<token>`; after `#`, so the token reaches no server log)
+   enables setting one up, once, within 14 days: the modern form of "temporary
+   credentials in the new-hire email" (Entra ID calls it a Temporary Access Pass).
+   Getting to the page at all already took the site's sign-in gate: the VPN of the story.
+3. **Or fill it in.** If the hiring manager never submitted them, there is no account
+   and nothing to take over, so the details from the email are enough. What they type
+   from memory is tidied and matched (`lablib.check_person`: team names and aliases
+   with difflib, capitals, the username pattern `flastname`), and every correction is
+   shown for them to confirm before anything is created.
+4. **Set up.** A workstation type (the team's by default), the password twice, and
+   optionally the public key from their own laptop. The sign-up goes to the worker
+   through `/run/lab/signups` (memory only, read and deleted at once), which sets the
+   account up on dc01 (`/usr/local/sbin/lab-people`, password over stdin) and builds
+   the workstation like any guest machine, owned by them (`managedBy`).
+5. **Later.** They sign in with the AD password to see their workstations and build
+   more, of any type, up to `staff_max_machines`. Staff machines are named `ws<NN>`
+   after their VM ID; staff accounts stay when their machines go.
+
+**SSH keys.** The key someone gives is stored once, at `/var/www/lab/keys/<user>`, and
+every workstation's sshd asks mgmt01 for it on each key login (AuthorizedKeysCommand,
+roles/ad_join), like GitHub's `<user>.keys`. The private key never leaves the laptop,
+which is what makes a key login "definitely them"; a FIDO2 key (`ed25519-sk`) works the
+same way. Passwords over SSH are accepted only from mgmt01 (the browser terminal, which
+asks for it: staff passwords are stored nowhere).
+
+**The demo.** `lab people seed /root/lab-private/people.yml` (a file kept only on
+mgmt01) creates the accounts and writes the welcome emails, which `/mail` shows as an
+inbox. Its format:
+
+```yaml
+managers:      # made up; others point at them with `manager`
+  - {username: dvisser, given: Daan, surname: Visser, title: Head of Engineering, team: engineering}
+people:        # accounts created now, disabled; their emails carry a sign-up link
+  - {given: Pim, surname: van Dam, title: Sound Designer, team: audio, manager: dvisser}
+unsubmitted:   # no account: their emails carry the details for the welcome page's form
+  - {given: Kim, surname: MacBride, title: Animator, team: animation, manager: dvisser}
+```
+
 ## Guests are runtime records, not code
 
 The fleet is in git (`inventory/workstations/`). Portal machines are not: each is a

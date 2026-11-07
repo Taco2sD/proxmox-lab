@@ -14,6 +14,12 @@ Each operation runs in its own transient systemd unit, not as a child of this pr
 so restarting the worker (a deployment does that) never kills a build or a delete in
 progress, and `journalctl -u lab-op-<id>` shows its output.
 
+Sign-ups from the welcome page take a different path, because they carry a new
+password: the web side writes them to /run/lab/signups (a tmpfs, so never to disk),
+and this process reads and deletes each one at once, sets up the account on dc01
+(lablib.dc_people: the password goes over stdin) and then builds the first workstation
+like any other staff machine.
+
 Besides dispatching, it watches:
   - nginx's lab-events log: workstations fetching their one-time join password
     (joining) and reporting finished configuration runs (ready, check-ins)
@@ -114,10 +120,75 @@ def delete_guest(host, actor):
     launch(L.new_op("guest-delete", actor, [host]))
 
 
+# ---------------------------------------------------------------- staff (the welcome page)
+def onboarding(user, **fields):
+    """What the welcome page shows about a person's sign-up and their last request."""
+    L.update_json(L.ONBOARDING / f"{user}.json", lambda r: r.update(fields, time=time.time()), default={})
+
+
+def staff_create(user, role, queued):
+    """Another workstation for a staff member (their first comes with the sign-up)."""
+    cfg, existing = L.settings(), L.guests()
+    active = [r for r in existing.values() if not r.get("rejected")]
+    mine = [r for r in active if r.get("staff") and r.get("owner") == user]
+    if len(mine) >= cfg["staff_max_machines"]:
+        return onboarding(user, error=f"you have {len(mine)} workstations already, the most anyone can have")
+    vmid = L.free_guest_vmid(cfg, {r["vmid"] for r in active})
+    if vmid is None or len(active) >= cfg["max_guests"]:
+        return onboarding(user, error="the lab is full right now; try again later")
+    host = L.staff_host(vmid)
+    L.write_json(L.guest_path(host), {
+        "host": host, "owner": user, "role": role, "vmid": vmid, "staff": True, **L.address_for(vmid, cfg),
+        "state": "building", "error": None, "phases": {"queued": queued}})
+    onboarding(user, error=None)
+    launch(L.new_op("guest-create", f"staff {user}", [host]))
+
+
+def take_signups():
+    """Read and delete at once: the files hold a new password (see the module docstring)."""
+    found = []
+    for path in sorted(L.SIGNUPS.glob("*.json")):
+        try:
+            found.append(L.read_json(path))
+        finally:
+            path.unlink(missing_ok=True)
+    return [s for s in found if s]
+
+
+def signup(s):
+    user = s["user"]
+    onboarding(user, state="account", error=None, started=s["time"])
+    try:
+        L.dc_people("claim", {"username": user, "password": s["password"], "person": s.get("person"),
+                              "teams": L.teams()})
+    except Exception as e:                         # noqa: BLE001  Samba's message, never the request
+        log(f"sign-up {user}: {e}")
+        return onboarding(user, state="failed", error=str(e))
+    log(f"sign-up {user}: account ready ({'created' if s.get('person') else 'claimed'})")
+    if s.get("pubkey"):
+        # Public, so world-readable: nginx serves it to the workstations (roles/lab_web,
+        # lab-keys.conf), whose sshd asks for it on every key login (roles/ad_join)
+        L.KEYS.mkdir(parents=True, exist_ok=True)
+        (L.KEYS / user).write_text(s["pubkey"].strip() + "\n", encoding="utf-8")
+        os.chmod(L.KEYS / user, 0o644)
+    try:
+        L.export_people()
+    except Exception as e:                         # noqa: BLE001
+        log(f"people export: {e!r}")
+    onboarding(user, state="ready")
+    staff_create(user, s["role"], s["time"])
+
+
 def handle(req):
     action = req.get("action")
     if action == "create":
         create(req)
+    elif action == "staff-create":                       # a signed-in staff member (checked by the web side)
+        staff_create(req["user"], req["role"], req["time"])
+    elif action == "staff-delete":
+        r = L.read_json(L.guest_path(req.get("host", ""))) or {}
+        if r.get("staff") and r.get("owner") == req.get("user"):
+            delete_guest(r["host"], f"staff {req['user']}")
     elif action == "delete" and "token_sha256" in req:   # the owner, proven by their token
         host = f"ws-{req['user']}"
         r = L.read_json(L.guest_path(host)) or {}
@@ -196,11 +267,16 @@ def on_event(e):
 
 # ---------------------------------------------------------------- periodic checks
 def observe():
-    """What Proxmox has, for the admin page (fleet machines have no build record)."""
+    """What Proxmox has, for the admin page (fleet machines have no build record), and
+    who AD has, for the welcome page's lookups."""
     try:
         L.write_json(L.OBSERVED, {"time": time.time(), "vms": {str(k): v for k, v in L.Proxmox().vms().items()}})
     except Exception as e:                              # noqa: BLE001
         log(f"observe: {e!r}")
+    try:
+        L.export_people()
+    except Exception as e:                              # noqa: BLE001
+        log(f"people export: {e!r}")
 
 
 def fail_stalled():
@@ -230,12 +306,17 @@ def reap_ops():
 
 def main():
     os.umask(0o027)
-    for d in (L.GUESTS, L.OPS, L.LOGS):
+    for d in (L.GUESTS, L.OPS, L.LOGS, L.ONBOARDING):
         d.mkdir(parents=True, exist_ok=True)
     threading.Thread(target=follow_events, daemon=True).start()
     log("lab-portal-worker started")
     last_observe = 0
     while True:
+        for s in take_signups():
+            try:
+                signup(s)
+            except Exception as e:                       # noqa: BLE001  (no request in the log: it has a password)
+                log(f"sign-up {s.get('user')} failed: {type(e).__name__}")
         for path, req in take_requests():
             try:
                 handle(req)

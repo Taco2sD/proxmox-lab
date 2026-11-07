@@ -1,5 +1,5 @@
 """Unit tests for the portal's web side (ansible/roles/portal/files/portal.py): username
-rules, the admin session cookie, and the Guacamole login it builds.
+rules, the admin and staff session cookies, and the Guacamole login it builds.
 Run by tools/check: python3 -m unittest discover -s tests"""
 import os
 import sys
@@ -43,6 +43,13 @@ class AdminSession(unittest.TestCase):
         b64, sig = cookie.split(".")
         self.assertIsNone(portal.session_user(b64 + "." + "0" * len(sig)))
         self.assertIsNone(portal.session_user("garbage"))
+
+    def test_kinds_dont_mix(self):
+        # A staff member's cookie (welcome page) must never pass for an admin's
+        staff = portal.session_cookie("pvandam", "staff")
+        self.assertEqual(portal.session_user(staff, "staff"), "pvandam")
+        self.assertIsNone(portal.session_user(staff))
+        self.assertIsNone(portal.session_user(portal.session_cookie("jrhodes"), "staff"))
 
 
 class GuacamoleLogin(unittest.TestCase):

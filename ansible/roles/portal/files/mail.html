@@ -1,0 +1,88 @@
+<!doctype html>
+<!-- The demo mailbox, served by portal.py at /mail (deployed to mgmt01:/usr/local/lib/
+     lab-portal/ by roles/portal). It stands in for each new hire's own inbox: the welcome
+     emails their hiring managers sent, as `lab people seed` wrote them (GET /api/mail,
+     from /var/lib/lab/mailbox.json on mgmt01; no names are in git). Two kinds:
+       - the account exists: the username and a one-time sign-up link for /welcome
+       - the manager never submitted it: the details to type in on /welcome instead
+     Shared look and helpers: /static/common.css and /static/common.js. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mailbox</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+main { max-width:1040px; margin:0 auto; padding:32px 16px 64px; }
+header.top { margin-bottom:20px; }
+.mail { display:grid; grid-template-columns:320px 1fr; min-height:520px; overflow:hidden; }
+@media (max-width:760px) { .mail { grid-template-columns:1fr; } .mail.reading .list { display:none; } .mail:not(.reading) .read { display:none; } }
+.list { border-right:1px solid var(--line); overflow:auto; }
+.item { display:block; width:100%; text-align:left; background:none; border:0; border-bottom:1px solid var(--line); border-radius:0;
+        padding:12px 16px; font-weight:400; color:var(--text); }
+.item:hover { background:var(--soft); } .item.on { background:var(--sel); }
+.item .from { font-weight:600; display:flex; justify-content:space-between; gap:8px; }
+.item .from time { font-weight:400; color:var(--muted); font-size:.8rem; }
+.item .subj { font-size:.9rem; } .item .peek { font-size:.82rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.read { padding:24px 28px; }
+.read h2 { margin:0 0 10px; font-size:1.25rem; }
+.meta { font-size:.85rem; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:18px; }
+.meta b { color:var(--text); font-weight:600; }
+.body p { margin:0 0 14px; max-width:60ch; }
+.cta { display:inline-block; background:var(--accent); color:var(--accent-text); text-decoration:none; font-weight:600; padding:10px 18px; border-radius:8px; margin:4px 0 16px; }
+table.kv { border-collapse:collapse; margin:4px 0 16px; }
+table.kv th { text-align:left; font-weight:500; color:var(--muted); padding:5px 18px 5px 0; font-size:.9rem; }
+table.kv td { padding:5px 0; font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:.9rem; }
+.back { display:none; margin-bottom:12px; } @media (max-width:760px) { .back { display:inline-block; } }
+.empty { padding:40px; color:var(--muted); }
+a { color:var(--accent); }
+</style>
+<script src="/static/common.js"></script></head>
+<body>
+<main>
+  <header class="top"><h1>Inbox</h1><div class="muted small">Demo mailbox: each new hire's welcome email, as their hiring manager sent it.</div></header>
+  <div class="card mail" id="mail"><div class="list" id="list"></div><div class="read" id="read"><div class="empty">Pick an email.</div></div></div>
+</main>
+<script>
+const welcome = `${location.origin}/welcome`;
+const date = ts => new Date(ts * 1000).toLocaleDateString([], { day: "numeric", month: "short" });
+
+function body(m) {
+  const sign = el("p", {}, "See you on your first day,", el("br"), m.from.name);
+  if (m.link) return [
+    el("p", {}, `Hi ${m.given},`),
+    el("p", {}, "Welcome to the studio! Your account has been created. All you need is your username:"),
+    el("table", { class: "kv" }, el("tr", {}, el("th", {}, "Username"), el("td", {}, m.username))),
+    el("p", {}, "Before your first day, set your password and get your workstation:"),
+    el("a", { class: "cta", href: m.link }, "Set up your account"),
+    el("p", { class: "small muted" }, "The link works once and expires in two weeks."), sign];
+  return [
+    el("p", {}, `Hi ${m.given},`),
+    el("p", {}, "Welcome to the studio! Here are your details. You'll need them to set up your account and workstation:"),
+    el("table", { class: "kv" }, Object.entries(m.person).map(([k, v]) => el("tr", {}, el("th", {}, k), el("td", {}, v)))),
+    el("p", {}, "Go to ", el("a", { href: welcome }, welcome), " and enter your username to get started."), sign];
+}
+
+function open(m, button) {
+  document.querySelectorAll(".item").forEach(b => b.classList.toggle("on", b === button));
+  $("#mail").classList.add("reading");
+  $("#read").replaceChildren(
+    el("button", { class: "ghost back", onclick: () => $("#mail").classList.remove("reading") }, "← Inbox"),
+    el("h2", {}, m.subject),
+    el("div", { class: "meta" }, el("b", {}, m.from.name), ` <${m.from.address}>`, el("br"), `To: ${m.to} · ${date(m.time)}`),
+    el("div", { class: "body" }, body(m)));
+}
+
+(async () => {
+  const r = await api("/api/mail");
+  const emails = r.data.emails || [];
+  if (!emails.length) return $("#list").replaceChildren(el("div", { class: "empty" }, "No emails yet."));
+  $("#list").replaceChildren(...emails.map(m => {
+    const b = el("button", { class: "item" },
+      el("div", { class: "from" }, m.from.name, el("time", {}, date(m.time))),
+      el("div", { class: "subj" }, m.subject),
+      el("div", { class: "peek" }, `To ${m.person.Name}: ${m.link ? "your username is " + m.username : "your details for the welcome page"}`));
+    b.onclick = () => open(m, b);
+    return b;
+  }));
+})();
+</script>
+</body></html>

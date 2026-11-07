@@ -18,6 +18,7 @@ server {
         try_files $uri =404;
     }
     include snippets/lab-otp.conf;      # one-time join passwords, each for one address
+    include snippets/lab-keys.conf;     # people's SSH public keys, for workstations' sshd
     include snippets/lab-events.conf;   # workstations report finished configuration runs
 }
 

@@ -1,0 +1,9 @@
+# The "designer" workstation, for game design and narrative. Same shape and same
+# readers as catalog/artist.yml (see its header).
+name: Designer
+description: Ubuntu 26.04 with level and flow design tools.
+tools: [Tiled, Graphviz]
+# Stand-ins: a studio would ship its own editor builds and scripting tools
+packages: [tiled, graphviz]
+login_groups: [security-design, security-narrative]
+size: {cores: 2, memory_mb: 3072, disk_gb: 24}

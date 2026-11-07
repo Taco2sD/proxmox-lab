@@ -1,0 +1,9 @@
+# The "audio" workstation, for sound design. Same shape and same readers as
+# catalog/artist.yml (see its header).
+name: Audio
+description: Ubuntu 26.04 with audio editing tools.
+tools: [Audacity, SoX]
+# Stand-ins for a studio's DAW and middleware (Wwise, Reaper and the like)
+packages: [audacity, sox]
+login_groups: [security-audio]
+size: {cores: 2, memory_mb: 3072, disk_gb: 24}

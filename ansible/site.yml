@@ -5,12 +5,13 @@
 # Per-workstation things (AD accounts, DHCP reservations, join passwords) are
 # ansible/identity.yml's job; the workstations' own configuration is ansible/local.yml.
 
-- name: Domain controller (dc01) - DNS names, DHCP, LDAPS
+- name: Domain controller (dc01) - DNS names, DHCP, LDAPS, teams
   hosts: dc01
   roles:
     - lab_dns        # AD DNS zones for the public names, so lab machines reach lab hosts
     - dhcp_server    # dnsmasq: base config, per-host reservations directory, DNS hook
     - samba_ldaps    # Let's Encrypt certificate for LDAPS (the admin page signs in over it)
+    - ad_people      # team security groups; the people helper (lab-people)
 
 - name: Hypervisor (pve01) - portal relay and backups
   hosts: pve01

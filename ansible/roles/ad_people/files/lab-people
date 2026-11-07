@@ -1,0 +1,189 @@
+#!/usr/bin/python3
+"""lab-people: the studio's people in AD. Runs on dc01 as root, deployed to
+/usr/local/sbin/lab-people by roles/ad_people.
+
+Called from mgmt01 only, over svc-runner's key (lablib.dc_people), with JSON on stdin
+and JSON on stdout, so passwords never appear on a command line (and so not in the
+process list or any log):
+
+  groups   {teams, admin_group}   the security-<team> groups (inventory/teams.yml),
+                                  admin teams nested in ws-admins
+  export   {}                     -> {people: {user: {...}}}: the accounts in
+                                  OU=Users,OU=Lab, for the welcome page's lookups
+  seed     {people, teams}        accounts for people the studio already has, created
+                                  *disabled* with a random password nobody knows: they
+                                  become usable only when their owner signs up
+  claim    {username, password,   sign-up: an existing disabled account is enabled
+            person?, teams}       with the new password; with `person`, a missing one
+                                  is created (the hiring manager never submitted it)
+
+Uses Samba's own Python bindings (python3-samba, there on every Samba DC) on the local
+database, as samba-tool does, rather than parsing samba-tool's output.
+"""
+import json
+import secrets
+import sys
+
+import ldb
+from samba.auth import system_session
+from samba.dsdb import UF_ACCOUNTDISABLE
+from samba.param import LoadParm
+from samba.samdb import SamDB
+
+USERS_OU = "OU=Users,OU=Lab"      # staff: kept when their machines go (unlike OU=Guests)
+GROUPS_OU = "OU=Groups,OU=Lab"
+DOMAIN_USERS_GID = 10000          # every account's primary RFC2307 group
+FIRST_UID = 21000                 # staff uidNumbers: 21001 and up (guests use 201xx)
+
+lp = LoadParm()
+lp.load_default()
+db = SamDB(url=lp.samdb_url(), session_info=system_session(), lp=lp)
+BASE = str(db.domain_dn())
+
+
+def find(flt, attrs, base=BASE):
+    return db.search(base, scope=ldb.SCOPE_SUBTREE, expression=flt, attrs=attrs)
+
+
+def user(name, attrs=("sAMAccountName",)):
+    found = find(f"(&(objectClass=user)(sAMAccountName={ldb.binary_encode(name)}))", list(attrs))
+    return found[0] if found else None
+
+
+def first(msg, attr):
+    return str(msg[attr][0]) if attr in msg else ""
+
+
+def replace(dn, **attrs):
+    """Set attributes (empty values are skipped, never cleared)."""
+    m = ldb.Message()
+    m.dn = ldb.Dn(db, str(dn))
+    for k, v in attrs.items():
+        if v is not None and str(v) != "":
+            m[k] = ldb.MessageElement(str(v), ldb.FLAG_MOD_REPLACE, k)
+    if len(m) > 0:
+        db.modify(m)
+
+
+def member_of(name):
+    u = user(name, ["memberOf"])
+    return {str(g).split(",", 1)[0][3:] for g in u.get("memberOf", [])} if u else set()
+
+
+def add_to(group, name):
+    if group not in member_of(name):
+        db.add_remove_group_members(group, [name], add_members_operation=True)
+
+
+def ensure_group(key, team):
+    if not find(f"(&(objectClass=group)(cn=security-{key}))", ["cn"]):
+        db.newgroup(f"security-{key}", groupou=GROUPS_OU, description=f"Team: {team['name']}",
+                    gidnumber=int(team["gid"]), nisdomain="lab")
+        return True
+    return False
+
+
+def next_uid():
+    taken = [int(first(m, "uidNumber")) for m in find("(&(objectClass=user)(uidNumber=*))", ["uidNumber"])]
+    return max([FIRST_UID, *taken]) + 1
+
+
+def set_details(name, p, teams):
+    """Name, title and team on an account (attributes plus team group membership)."""
+    u = user(name)
+    team = teams[p["team"]]
+    manager = user(p["manager"]) if p.get("manager") else None
+    replace(u.dn, givenName=p["given"], sn=p["surname"], displayName=f"{p['given']} {p['surname']}",
+            title=p.get("title"), department=team["name"], manager=manager.dn if manager else None)
+    ensure_group(p["team"], team)
+    add_to(f"security-{p['team']}", name)
+    for g in member_of(name):              # one team at a time
+        if g.startswith("security-") and g != f"security-{p['team']}":
+            db.add_remove_group_members(g, [name], add_members_operation=False)
+
+
+def create(name, p, password, teams):
+    db.newuser(name, password, userou=USERS_OU, givenname=p["given"], surname=p["surname"],
+               jobtitle=p.get("title"), department=teams[p["team"]]["name"],
+               uidnumber=next_uid(), gidnumber=DOMAIN_USERS_GID, nisdomain="lab",
+               unixhome=f"/home/{name}", loginshell="/bin/bash")
+    set_details(name, p, teams)
+
+
+def cmd_groups(req):
+    created = [k for k, t in req["teams"].items() if ensure_group(k, t)]
+    for k, t in req["teams"].items():
+        if t.get("admin"):
+            members = {str(m).split(",", 1)[0][3:] for m in
+                       (find(f"(cn={req['admin_group']})", ["member"]) or [{}])[0].get("member", [])}
+            if f"security-{k}" not in members:
+                db.add_remove_group_members(req["admin_group"], [f"security-{k}"], add_members_operation=True)
+                created.append(f"security-{k} in {req['admin_group']}")
+    return {"changed": created}
+
+
+def cmd_export(_req):
+    people = {}
+    for m in find("(&(objectClass=user)(!(objectClass=computer)))",
+                  ["sAMAccountName", "givenName", "sn", "displayName", "title", "department",
+                   "manager", "memberOf", "userAccountControl"], base=f"{USERS_OU},{BASE}"):
+        manager = first(m, "manager")
+        mgr = db.search(manager, scope=ldb.SCOPE_BASE, attrs=["displayName"]) if manager else []
+        groups = [str(g).split(",", 1)[0][3:] for g in m.get("memberOf", [])]
+        people[first(m, "sAMAccountName").lower()] = {
+            "given": first(m, "givenName"), "surname": first(m, "sn"), "name": first(m, "displayName"),
+            "title": first(m, "title"), "department": first(m, "department"),
+            "team": next((g[9:] for g in groups if g.startswith("security-")), None),
+            "manager": first(mgr[0], "displayName") if mgr else "",
+            "enabled": not int(first(m, "userAccountControl") or 0) & UF_ACCOUNTDISABLE,
+        }
+    return {"people": people}
+
+
+def cmd_seed(req):
+    done = {"created": [], "updated": []}
+    for p in req["people"]:                 # managers first in the list: others point at them
+        name = p["username"]
+        if not user(name):
+            create(name, p, secrets.token_urlsafe(24) + "aA1!", req["teams"])
+            db.disable_account(f"(sAMAccountName={ldb.binary_encode(name)})")
+            done["created"].append(name)
+        else:
+            set_details(name, p, req["teams"])
+            done["updated"].append(name)
+    return done
+
+
+def cmd_claim(req):
+    name, flt = req["username"], f"(sAMAccountName={ldb.binary_encode(req['username'])})"
+    u = user(name, ["userAccountControl"])
+    if u is None:
+        if not req.get("person"):
+            raise ValueError(f"there is no account called {name}")
+        create(name, req["person"], req["password"], req["teams"])
+        return {"created": True}
+    if not int(first(u, "userAccountControl")) & UF_ACCOUNTDISABLE:
+        raise ValueError(f"{name} has been set up already: sign in with its password")
+    db.setpassword(flt, req["password"], force_change_at_next_login=False)
+    db.enable_account(flt)
+    return {"created": False}
+
+
+def main():
+    commands = {"groups": cmd_groups, "export": cmd_export, "seed": cmd_seed, "claim": cmd_claim}
+    if len(sys.argv) != 2 or sys.argv[1] not in commands:
+        print(json.dumps({"error": f"usage: lab-people {{{','.join(commands)}}} < request.json"}))
+        return 2
+    try:
+        req = json.loads(sys.stdin.read() or "{}")
+        print(json.dumps(commands[sys.argv[1]](req)))
+        return 0
+    except (ValueError, KeyError, ldb.LdbError) as e:
+        # Samba's own message ("password does not meet complexity", ...), never the request
+        msg = e.args[1] if isinstance(e, ldb.LdbError) and len(e.args) > 1 else str(e)
+        print(json.dumps({"error": msg}))
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

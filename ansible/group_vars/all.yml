@@ -58,7 +58,10 @@ pve_bridge: vmbr0
 # through the portal the guest range. tools/validate_inventory.py enforces all of this.
 fleet_vmids: [121, 129]
 guest_vmids: [131, 139]
-max_guests: 4
+# Machines in the guest range at once: visitors' (ws-<username>) and staff members'
+# (ws<NN>, from the welcome page). pve01 has room for about six more 3 GB machines.
+max_guests: 6
+staff_max_machines: 3     # per person
 
 # The golden image every workstation is cloned from (`lab image build`). Two VM IDs, so
 # a new image is built next to the current one and only replaces it once it's done.

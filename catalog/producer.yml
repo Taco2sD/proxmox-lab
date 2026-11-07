@@ -1,0 +1,9 @@
+# The "producer" workstation, for production. Same shape and same readers as
+# catalog/artist.yml (see its header).
+name: Producer
+description: Ubuntu 26.04 with spreadsheets and documents.
+tools: [LibreOffice Calc, LibreOffice Writer]
+# The heaviest stand-in: a first boot with these takes a few minutes longer
+packages: [libreoffice-calc, libreoffice-writer]
+login_groups: [security-production]
+size: {cores: 2, memory_mb: 3072, disk_gb: 24}

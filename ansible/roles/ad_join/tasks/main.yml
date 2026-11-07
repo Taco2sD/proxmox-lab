@@ -144,6 +144,29 @@
   ansible.builtin.command: pam-auth-update --enable mkhomedir
   when: mkhomedir.rc != 0
 
+- name: People's SSH keys come from mgmt01 (the key they gave on the welcome page)
+  ansible.builtin.copy:
+    dest: /usr/local/libexec/lab-authorized-keys
+    content: |
+      #!/bin/sh
+      # Managed by Ansible (ad_join role). sshd runs this as "nobody" for every key login
+      # (AuthorizedKeysCommand) and accepts the keys it prints: the person's public key
+      # from https://{{ lab_fqdn }}/keys/<user> (roles/lab_web: lab-keys.conf). Unknown
+      # users get nothing back, and sshd still reads ~/.ssh/authorized_keys as usual.
+      case "$1" in *[!a-z0-9]* | "") exit 0 ;; esac
+      exec curl -fsS --max-time 5 "https://{{ lab_fqdn }}/keys/$1"
+    mode: "0755"
+
+- name: Ask mgmt01 for those keys on every key login (sshd)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/50-lab-keys.conf
+    content: |
+      # Managed by Ansible (ad_join role): see /usr/local/libexec/lab-authorized-keys
+      AuthorizedKeysCommand /usr/local/libexec/lab-authorized-keys %u
+      AuthorizedKeysCommandUser nobody
+    mode: "0644"
+  notify: Reload sshd
+
 - name: Password SSH logins only from mgmt01 (Guacamole), keys only for everyone else
   ansible.builtin.copy:
     # 99- so it is read last: a Match block captures every directive after it, and

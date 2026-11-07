@@ -28,6 +28,7 @@
     - { src: lab-portal-locations.conf, dest: /etc/nginx/snippets/lab-portal-locations.conf }
     - { src: lab-events.conf, dest: /etc/nginx/snippets/lab-events.conf }
     - { src: lab-otp.conf, dest: /etc/nginx/snippets/lab-otp.conf }
+    - { src: lab-keys.conf, dest: /etc/nginx/snippets/lab-keys.conf }
   notify: Reload nginx
 
 - name: Join-password access rules directory (filled by roles/join_otp)

@@ -17,6 +17,10 @@ each command with examples.
   lab guest create HOST     build / remove one portal machine from its record on mgmt01
   lab guest delete HOST     (normally started by the portal's worker, not by hand)
   lab op run ID             run a queued operation (how the worker starts them)
+  lab people seed FILE      put the studio's existing people in AD (disabled until they
+                            sign up), with sign-up links and the demo mailbox's emails
+  lab people export         refresh the welcome page's copy of AD's people (the worker
+                            does this every minute)
 
 Two tiers (docs/self-service.md): fleet machines are files in git and change through
 `lab apply` / `lab reconcile`; guest machines are runtime records, each with its own
@@ -27,8 +31,10 @@ Every mutating command is an "operation": a record in /var/lib/lab/ops (the admi
 page's Activity), a log in /var/log/lab/<id>.log, and lines in the audit log.
 """
 import argparse
+import hashlib
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -530,6 +536,59 @@ def doctor():
     return 1 if bad else 0
 
 
+# ---------------------------------------------------------------- people
+INVITE_DAYS = 14
+MAIL_DOMAIN = "studio.example"      # the demo mailbox's made-up addresses (RFC 2606)
+
+
+def people_seed(path):
+    """The studio's existing people, from a private file that is never in git (the
+    repository is public; docs/self-service.md shows its format). Their accounts are
+    created disabled; each gets a one-time sign-up link in a welcome email, shown on the
+    demo mailbox page (/mail). People under `unsubmitted` are left out of AD on purpose:
+    their email carries their details instead, for the welcome page's form."""
+    import yaml
+    seed = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    teams, cfg = L.teams(), L.settings()
+    def entry(p):
+        p = {**p, "username": p.get("username") or L.expected_username(p["given"], p["surname"])}
+        if p["team"] not in teams or not L.USER_RE.fullmatch(p["username"]):
+            raise Fail(f"{p['username']}: unknown team {p['team']!r} or bad username")
+        return p
+    managers = [entry(p) for p in seed.get("managers", [])]
+    staff = [entry(p) for p in seed.get("people", [])]
+    later = [entry(p) for p in seed.get("unsubmitted", [])]
+    done = L.dc_people("seed", {"people": managers + staff, "teams": teams})
+    print(f"AD: created {', '.join(done['created']) or 'nobody'}; updated {', '.join(done['updated']) or 'nobody'}")
+    names = {p["username"]: f"{p['given']} {p['surname']}" for p in managers}
+    L.INVITES.mkdir(mode=0o2770, exist_ok=True)
+    emails, now = [], time.time()
+    for p in staff + later:
+        manager = p.get("manager")
+        mail = {"id": p["username"], "time": now,
+                "from": {"name": names.get(manager, "People team"), "address": f"{manager or 'people'}@{MAIL_DOMAIN}"},
+                "to": f"{L.fold(p['given']).lower()}.{L.fold(p['surname']).lower().replace(' ', '')}@mail.example",
+                "subject": f"Welcome aboard, {p['given']}!", "username": p["username"], "given": p["given"],
+                "person": {"Name": f"{p['given']} {p['surname']}", "Job title": p["title"],
+                           "Team": teams[p["team"]]["name"], "Username": p["username"]}}
+        if p in staff:
+            token = secrets.token_urlsafe(24)
+            L.write_json(L.INVITES / f"{p['username']}.json",
+                         {"token_sha256": hashlib.sha256(token.encode()).hexdigest(),
+                          "expires": now + INVITE_DAYS * 86400}, mode=0o640)
+            (L.INVITES / f"{p['username']}.used").unlink(missing_ok=True)
+            # The token goes after #: browsers never send that part, so it's in no log
+            mail["link"] = f"https://{cfg['lab_fqdn']}/welcome?u={p['username']}#t={token}"
+        else:
+            mail["link"] = None
+        emails.append(mail)
+    L.write_json(L.MAILBOX, {"emails": emails})
+    L.export_people()
+    print(f"{len(staff)} sign-up links (valid {INVITE_DAYS} days), {len(later)} without an account; "
+          f"mailbox: https://{cfg['lab_fqdn']}/mail")
+    return 0
+
+
 # ---------------------------------------------------------------- command line
 def main():
     p = argparse.ArgumentParser(prog="lab", description=__doc__.split("\n\n")[0],
@@ -543,6 +602,9 @@ def main():
     g = sub.add_parser("guest")
     g.add_argument("action", choices=["create", "delete"])
     g.add_argument("host")
+    pp = sub.add_parser("people")
+    pp.add_argument("action", choices=["seed", "export"])
+    pp.add_argument("file", nargs="?")
     o = sub.add_parser("op")
     o.add_argument("action", choices=["run"])
     o.add_argument("id")
@@ -554,6 +616,17 @@ def main():
         return doctor()
     if a.cmd == "reconcile":
         return reconcile()
+    if a.cmd == "people":
+        if a.action == "export":
+            print(f"{len(L.export_people())} people")
+            return 0
+        if not a.file:
+            p.error("lab people seed FILE")
+        try:
+            return people_seed(a.file)
+        except (Fail, RuntimeError) as e:
+            print(f"lab people seed: {e}", file=sys.stderr)
+            return 1
     if a.cmd == "plan":
         op = Op({"id": "plan", "log": "/dev/null"}, echo=True)
         check_inventory()

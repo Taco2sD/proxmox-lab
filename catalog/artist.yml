@@ -14,7 +14,7 @@ tools: [ImageMagick, FFmpeg]
 # Lightweight stand-ins for a real artist toolset (Maya, Houdini, Substance would be
 # internal packages from the studio's own repository)
 packages: [imagemagick, ffmpeg]
-# AD user groups that may log in on fleet machines of this role. A guest machine
+# AD security groups (teams, inventory/teams.yml) that may log in on fleet machines of this role. A guest machine
 # admits only its owner (and ad_admin_groups), whatever its role.
-login_groups: [artists]
+login_groups: [security-animation, security-vfx, security-environment]
 size: {cores: 2, memory_mb: 3072, disk_gb: 24}

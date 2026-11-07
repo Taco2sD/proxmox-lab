@@ -1,0 +1,63 @@
+# The studio's teams. Each one becomes an AD security group, security-<team>, in
+# OU=Groups,OU=Lab (roles/ad_people creates them on dc01). People are members of their
+# team's group; catalog/*.yml login_groups say which teams may log in on fleet machines
+# of a role, and service VMs will use the same groups for access later.
+#
+# Per team:
+#   name     what people see (the welcome page, AD's "department" attribute)
+#   gid      the group's RFC2307 gidNumber: workstations resolve groups by number
+#            (sssd, ldap_id_mapping = False), so every group needs a stable one
+#   role     the workstation a new member gets by default (catalog/<role>.yml)
+#   admin    true: members are workstation admins too (the group is nested in
+#            ws-admins, ad_admin_groups in ansible/group_vars/all.yml)
+#   aliases  other words people use for it. The welcome page matches what someone
+#            types against names and aliases, forgiving typos (lablib.match_team)
+#
+# Read by lablib.teams() (the portal, `lab`, tools/validate_inventory.py) and
+# roles/ad_people. People themselves are never in git: they live in AD.
+it:
+  name: IT & Infrastructure
+  gid: 10101
+  role: infra
+  admin: true
+  aliases: [it, infrastructure, infra, systems, sysadmin, devops, operations, ops, network, studio it, tech support]
+engineering:
+  name: Engineering
+  gid: 10102
+  role: programmer
+  aliases: [programming, programmer, software, code, tools, technology, engine, developer, development]
+vfx:
+  name: VFX
+  gid: 10103
+  role: artist
+  aliases: [visual effects, effects, fx, vfx art]
+animation:
+  name: Animation
+  gid: 10104
+  role: artist
+  aliases: [animator, animators, cinematics, cinematic, character animation, mocap, motion capture]
+environment:
+  name: Environment Art
+  gid: 10105
+  role: artist
+  aliases: [environment, environments, env art, world art, level art, art]
+design:
+  name: Game Design
+  gid: 10106
+  role: designer
+  aliases: [design, designer, game designer, level design, quest design, technical design, systems design]
+narrative:
+  name: Narrative
+  gid: 10107
+  role: designer
+  aliases: [writing, writer, writers, story, narrative design, dialogue, scripting]
+production:
+  name: Production
+  gid: 10108
+  role: producer
+  aliases: [producer, producers, project management, pm, management, tech production]
+audio:
+  name: Audio
+  gid: 10109
+  role: audio
+  aliases: [sound, sound design, sound designer, sfx, music, composer, audio design]

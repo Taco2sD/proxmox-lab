@@ -1,0 +1,289 @@
+<!doctype html>
+<!-- The studio's welcome page, served by portal.py at /welcome (deployed to
+     mgmt01:/usr/local/lib/lab-portal/ by roles/portal). docs/self-service.md has the flow.
+
+     1. Look yourself up by the username from your welcome email (AD, via the worker's
+        export: GET /api/welcome/lookup).
+     2a. Found: your details in a table. With the email's one-time sign-up link (the
+         token after # in the URL, never sent to a server log) you may set the account up.
+     2b. Not found (the hiring manager never submitted you): type in the details from the
+         email. The server tidies them and matches the team (POST /api/welcome/check)
+         and shows every correction for you to confirm before anything is created.
+     3. Workstation type (your team's by default), the password twice, optionally an SSH
+        public key from your own laptop. POST /api/welcome/signup.
+     4. "My workstations": build progress, Connect (browser terminal), more machines.
+     portal.py fills in __CONFIG__ (roles, teams, build steps, the per-person limit).
+     Shared look and helpers: /static/common.css and /static/common.js. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+main { max-width:720px; margin:0 auto; padding:40px 16px 64px; }
+header.top { display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-bottom:24px; }
+.card { padding:22px; margin-bottom:16px; }
+.card h2 { margin:0 0 6px; font-size:1.15rem; }
+.card > p:first-of-type { margin-top:0; }
+label.field { display:block; font-weight:600; margin:14px 0 6px; }
+input[type=text], input[type=password], select, textarea { width:100%; padding:10px 12px; font:inherit; color:inherit;
+  background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+textarea { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:.85rem; min-height:72px; resize:vertical; }
+.row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+.row > .grow { flex:1 1 220px; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 14px; }
+@media (max-width:560px) { .two { grid-template-columns:1fr; } }
+table.kv { border-collapse:collapse; width:100%; margin:8px 0 4px; }
+table.kv th { text-align:left; font-weight:500; color:var(--muted); padding:7px 14px 7px 0; width:34%; vertical-align:top; font-size:.9rem; }
+table.kv td { padding:7px 0; border-bottom:1px solid var(--line); }
+table.kv tr:last-child td { border-bottom:0; }
+.fixed { background:var(--sel); border-radius:6px; padding:1px 6px; }
+.was { color:var(--muted); font-size:.82rem; display:block; }
+.was s { text-decoration-thickness:1px; }
+.note { background:var(--soft); border-radius:10px; padding:12px 14px; font-size:.9rem; margin:14px 0; }
+.note.bad { background:var(--bad-soft); color:var(--bad); }
+ul.rules { list-style:none; padding:0; margin:8px 0 0; font-size:.85rem; }
+ul.rules li::before { content:"○ "; } ul.rules li.ok { color:var(--ok); } ul.rules li.ok::before { content:"● "; }
+.actions { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; margin-top:18px; }
+.machine { display:flex; flex-direction:column; gap:10px; }
+.machine-head { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:baseline; }
+.machine h3 { margin:0; font-size:1.05rem; }
+code { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:.85em; background:var(--soft); padding:1px 5px; border-radius:5px; }
+a { color:var(--accent); }
+</style>
+<script src="/static/common.js"></script></head>
+<body>
+<main>
+  <header class="top">
+    <div><h1 id="title">Welcome</h1><div class="muted small" id="subtitle">Set up your studio account and your workstation.</div></div>
+    <button class="ghost" id="signout" hidden>Sign out</button>
+  </header>
+  <div id="view" aria-live="polite"></div>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script>
+const CONFIG = __CONFIG__;
+const params = new URLSearchParams(location.search);
+const TOKEN = new URLSearchParams(location.hash.slice(1)).get("t") || "";
+const view = $("#view");
+const show = (...nodes) => view.replaceChildren(...nodes);
+const card = (...kids) => el("div", { class: "card" }, ...kids);
+const roleName = r => CONFIG.roles[r]?.name || r;
+
+// ---------------------------------------------------------------- 1. who are you?
+function findView(user = "", message = null) {
+  const input = el("input", { type: "text", id: "u", value: user, autocomplete: "username", autocapitalize: "none",
+                              spellcheck: "false", maxlength: "20", placeholder: "e.g. jdoe" });
+  const go = () => lookup(input.value.trim().toLowerCase());
+  input.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  show(card(
+    el("h2", {}, "Find your account"),
+    el("p", { class: "muted" }, "Enter the username from your welcome email."),
+    message,
+    el("div", { class: "row" }, el("div", { class: "grow" }, el("label", { class: "field", for: "u" }, "Username"), input),
+       el("button", { class: "primary", onclick: go }, "Look me up")),
+    el("p", { class: "small muted" }, "Set up already? ", el("a", { href: "#", onclick: e => { e.preventDefault(); signInView(input.value); } }, "Sign in"), " to see your workstations.")));
+  input.focus();
+}
+
+async function lookup(user) {
+  if (!user) return;
+  const r = await api(`/api/welcome/lookup?u=${encodeURIComponent(user)}&t=${encodeURIComponent(TOKEN)}`);
+  if (!r.ok) return findView(user, el("div", { class: "note bad" }, "Couldn't look that up. Try again in a moment."));
+  if (!r.data.found) return notFoundView(user);
+  const p = r.data.person;
+  const details = personTable(p);
+  if (p.set_up) return show(card(el("h2", {}, `Hi ${p.given}!`), details,
+    el("div", { class: "note" }, "Your account is set up already."),
+    el("div", { class: "actions" }, el("button", { class: "primary", onclick: () => signInView(user) }, "Sign in"))));
+  if (r.data.link !== "valid") {
+    const why = { used: "That sign-up link has been used already.", expired: "Your sign-up link has expired. Ask your hiring manager for a new one.",
+                  none: "This account is set up by the IT team. Ask them for help." }[r.data.link]
+             || "To set this account up, open the sign-up link in your welcome email.";
+    return show(card(el("h2", {}, `Hi ${p.given}!`), details, el("div", { class: "note" }, why),
+      el("div", { class: "actions" }, el("button", { class: "ghost", onclick: () => findView() }, "Back"))));
+  }
+  setupView({ user, person: null, given: p.given, surname: p.surname, team: p.team, role: p.role, details });
+}
+
+function personTable(p, corrections = []) {
+  const fixed = Object.fromEntries(corrections.map(c => [c.field, c.typed]));
+  const row = (label, value, field) => el("tr", {}, el("th", {}, label), el("td", {},
+    fixed[field] !== undefined ? [el("span", { class: "fixed" }, value || "–"),
+      el("span", { class: "was" }, "you typed: ", el("s", {}, fixed[field] || "(nothing)"))] : (value || "–")));
+  return el("table", { class: "kv" }, el("tbody", {},
+    row("Name", p.name || `${p.given} ${p.surname}`, null),
+    corrections.some(c => c.field === "given" || c.field === "surname") ?
+      [row("First name", p.given, "given"), row("Surname", p.surname, "surname")] : null,
+    row("Username", p.username, null),
+    row("Job title", p.title, "title"),
+    row("Team", p.team_name || CONFIG.teams[p.team]?.name, "team"),
+    p.manager ? row("Manager", p.manager, null) : null,
+    row("Workstation", roleName(p.role || CONFIG.teams[p.team]?.role), null)));
+}
+
+// ---------------------------------------------------------------- 2b. not in AD yet
+function notFoundView(user, typed = {}) {
+  const f = {};
+  const input = (key, label, attrs = {}) => {
+    f[key] = el("input", { type: "text", id: key, value: typed[key] || "", autocomplete: "off", ...attrs });
+    return el("div", {}, el("label", { class: "field", for: key }, label), f[key]);
+  };
+  const teams = el("datalist", { id: "teams" }, Object.values(CONFIG.teams).map(t => el("option", { value: t.name })));
+  show(card(
+    el("h2", {}, "We couldn't find that account"),
+    el("p", { class: "muted" }, `There's no account called `, el("code", {}, user), ` yet. Your hiring manager may not have submitted it: `
+       + "fill in the details from your welcome email and we'll create it. Don't worry about exact spelling."),
+    el("div", { class: "two" }, input("given", "First name"), input("surname", "Surname")),
+    input("title", "Job title"), input("team", "Team", { list: "teams", placeholder: "e.g. Animation" }), teams,
+    el("div", { class: "actions" }, el("button", { class: "ghost", onclick: () => findView(user) }, "Back"),
+      el("button", { class: "primary", onclick: () => check(user, f) }, "Continue"))));
+  f.given.focus();
+}
+
+async function check(user, f) {
+  const typed = Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.value]));
+  const r = await api("/api/welcome/check", { body: { ...typed, username: user }, admin: true });
+  if (!r.ok) return toast("Couldn't check that. Try again.");
+  const { person, corrections, problems } = r.data;
+  const p = { ...person, team_name: CONFIG.teams[person.team]?.name, role: CONFIG.teams[person.team]?.role };
+  const details = personTable(p, corrections);
+  if (problems.length) return show(card(el("h2", {}, "Almost"), details,
+    el("div", { class: "note bad" }, el("ul", { class: "rules" }, problems.map(t => el("li", {}, t)))),
+    el("div", { class: "actions" }, el("button", { class: "primary", onclick: () => notFoundView(user, typed) }, "Edit"))));
+  show(card(el("h2", {}, "Is this right?"),
+    el("p", { class: "muted" }, corrections.length ? "We tidied a few things up (highlighted). Check them against your welcome email."
+                                                   : "Check this against your welcome email."),
+    details,
+    el("div", { class: "actions" }, el("button", { class: "ghost", onclick: () => notFoundView(user, typed) }, "No, edit"),
+      el("button", { class: "primary", onclick: () => setupView({ user, person: { given: person.given, surname: person.surname,
+        title: person.title, team: person.team }, given: person.given, surname: person.surname, team: person.team,
+        role: p.role, details }) }, "Yes, that's me"))));
+}
+
+// ---------------------------------------------------------------- 3. password, key, workstation
+function setupView(s) {
+  const role = el("select", { id: "role" }, Object.entries(CONFIG.roles).map(([k, r]) =>
+    el("option", { value: k, selected: k === s.role }, r.name + (k === s.role ? " (your team's)" : ""))));
+  const pw = el("input", { type: "password", id: "pw", autocomplete: "new-password" });
+  const pw2 = el("input", { type: "password", id: "pw2", autocomplete: "new-password" });
+  const key = el("textarea", { id: "key", spellcheck: "false", placeholder: "ssh-ed25519 AAAA… you@laptop" });
+  const rules = [["8 characters or more", v => v.length >= 8],
+                 ["three of: lowercase, uppercase, digits, symbols", v => [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(x => x.test(v)).length >= 3],
+                 ["not your username or name", v => ![s.user, s.given, s.surname].some(n => n && n.length >= 3 && v.toLowerCase().includes(n.toLowerCase()))],
+                 ["both the same", v => v && v === pw2.value]];
+  const list = el("ul", { class: "rules" }, rules.map(([t]) => el("li", {}, t)));
+  const go = el("button", { class: "primary", disabled: true }, "Set up my account");
+  const update = () => { let all = true;
+    rules.forEach(([, test], i) => { const ok = test(pw.value); list.children[i].classList.toggle("ok", ok); all &&= ok; });
+    go.disabled = !all; };
+  pw.addEventListener("input", update); pw2.addEventListener("input", update);
+  role.addEventListener("change", () => desc.textContent = CONFIG.roles[role.value].desc);
+  const desc = el("div", { class: "small muted" }, CONFIG.roles[role.value].desc);
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = "Setting up…";
+    const r = await api("/api/welcome/signup", { admin: true, body: { username: s.user, token: TOKEN, person: s.person,
+      password: pw.value, password2: pw2.value, pubkey: key.value, role: role.value } });
+    if (!r.ok) { go.textContent = "Set up my account"; update(); return toast(r.data.error || "That didn't work. Try again."); }
+    history.replaceState(null, "", "/welcome");          // the sign-up link is spent: drop it from the address bar
+    meView();
+  };
+  show(card(
+    el("h2", {}, `Hi ${s.given}! Let's set you up`), s.details,
+    el("label", { class: "field", for: "role" }, "Your first workstation"), role, desc,
+    el("label", { class: "field", for: "pw" }, "Choose your password"), pw,
+    el("label", { class: "field", for: "pw2" }, "Type it again"), pw2, list,
+    el("label", { class: "field", for: "key" }, "SSH key from your laptop ", el("span", { class: "muted small" }, "(optional)")), key,
+    el("p", { class: "small muted" }, "To log in from your own laptop without a password: paste your public key (the one line in ",
+       el("code", {}, "~/.ssh/id_ed25519.pub"), "). No key yet? Run ", el("code", {}, "ssh-keygen -t ed25519"),
+       " on the laptop. The private key never leaves it. A security key works too (", el("code", {}, "-t ed25519-sk"), ")."),
+    el("div", { class: "actions" }, el("button", { class: "ghost", onclick: () => findView(s.user) }, "Cancel"), go)));
+  pw.focus();
+}
+
+// ---------------------------------------------------------------- 4. signed in: my workstations
+function signInView(user = "") {
+  const u = el("input", { type: "text", id: "su", value: user, autocomplete: "username", autocapitalize: "none", spellcheck: "false" });
+  const pw = el("input", { type: "password", id: "spw", autocomplete: "current-password" });
+  const go = async () => {
+    const r = await api("/api/me/login", { admin: true, body: { username: u.value.trim().toLowerCase(), password: pw.value } });
+    if (!r.ok) return toast(r.data.error || "Couldn't sign in.");
+    meView();
+  };
+  pw.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  show(card(el("h2", {}, "Sign in"), el("label", { class: "field", for: "su" }, "Username"), u,
+    el("label", { class: "field", for: "spw" }, "Password"), pw,
+    el("div", { class: "actions" }, el("button", { class: "ghost", onclick: () => findView(u.value) }, "Back"),
+       el("button", { class: "primary", onclick: go }, "Sign in"))));
+  (user ? pw : u).focus();
+}
+
+let timer = null;
+async function meView() {
+  clearTimeout(timer);
+  const r = await api("/api/me");
+  if (!r.ok) return params.get("u") ? lookup(params.get("u")) : findView();
+  const { user, person, onboarding, machines } = r.data;
+  $("#signout").hidden = false;
+  $("#title").textContent = person?.given ? `Hi ${person.given}` : "Your workstations";
+  $("#subtitle").textContent = person ? `${person.title || ""}${person.team_name ? " · " + person.team_name : ""}` : user;
+  const parts = [];
+  if (onboarding.state === "account") parts.push(card(el("h2", {}, "Setting up your account…"), el("div", { class: "bar" }, el("div", { style: "width:15%" }))));
+  if (onboarding.state === "failed") parts.push(card(el("h2", {}, "Your account couldn't be set up"),
+    el("div", { class: "note bad" }, onboarding.error || "Something went wrong."), el("p", { class: "small muted" }, "Ask the IT team for help.")));
+  if (onboarding.error && onboarding.state !== "failed") parts.push(el("div", { class: "note bad" }, `Your last request didn't go through: ${onboarding.error}.`));
+  for (const m of machines) parts.push(machineCard(m));
+  if (onboarding.state !== "account" && onboarding.state !== "failed" && machines.length < CONFIG.max_machines) parts.push(addCard(person));
+  show(...parts);
+  if (onboarding.state === "account" || machines.some(m => m.state === "building" || m.state === "removing")
+      || (onboarding.state === "ready" && !machines.length)) timer = setTimeout(meView, 3000);
+}
+
+function machineCard(m) {
+  const keys = CONFIG.phases.map(p => p[0]);
+  const done = keys.filter(k => m.phases?.[k]).length;
+  const current = CONFIG.phases.find(p => !m.phases?.[p[0]]);
+  const ready = m.state === "ready";
+  return card(el("div", { class: "machine" },
+    el("div", { class: "machine-head" }, el("h3", {}, `${roleName(m.role)} workstation`),
+       el("span", { class: `status ${m.state}` }, { ready: "Ready", building: "Building", failed: "Failed", removing: "Deleting" }[m.state] || m.state)),
+    el("div", { class: "small muted mono" }, `${m.host}${m.ip ? " · " + m.ip : ""}`),
+    m.state === "building" ? [el("div", { class: "bar" }, el("div", { style: `width:${Math.max(8, done / keys.length * 100)}%` })),
+                              el("div", { class: "small" }, current ? current[1] + "…" : "")] : null,
+    m.error ? el("div", { class: "note bad" }, m.error) : null,
+    ready ? el("div", { class: "small muted" }, "From your laptop (with the key you gave): ", el("code", {}, `ssh ${m.user}@${m.ip}`),
+                " · or open the browser terminal and log in with your password.") : null,
+    el("div", { class: "actions" },
+      m.state !== "removing" ? el("button", { class: "ghost", onclick: () => remove(m) }, "Delete") : null,
+      ready ? el("button", { class: "primary", onclick: () => connect(m) }, "Open terminal") : null)));
+}
+
+function addCard(person) {
+  const role = el("select", {}, Object.entries(CONFIG.roles).map(([k, r]) => el("option", { value: k, selected: k === person?.role }, r.name)));
+  return card(el("h2", {}, "Another workstation"),
+    el("p", { class: "small muted" }, `Up to ${CONFIG.max_machines}, of any type your work needs.`),
+    el("div", { class: "row" }, el("div", { class: "grow" }, role),
+      el("button", { class: "primary", onclick: async () => {
+        const r = await api("/api/me/build", { admin: true, body: { role: role.value } });
+        toast(r.ok ? "Building it now." : r.data.error || "That didn't work."); setTimeout(meView, 1500); } }, "Build")));
+}
+
+async function connect(m) {
+  const w = window.open("", "_blank");
+  const r = await api("/api/me/connect", { admin: true, body: { host: m.host } });
+  if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the terminal."); }
+  if (w) w.location = r.data.url; else location = r.data.url;
+}
+
+async function remove(m) {
+  if (!confirm(`Delete ${m.host}? Everything on it is gone for good.`)) return;
+  const r = await api("/api/me/delete", { admin: true, body: { host: m.host } });
+  toast(r.ok ? "Deleting it." : r.data.error || "That didn't work."); setTimeout(meView, 1500);
+}
+
+$("#signout").onclick = async () => { await api("/api/me/logout", { admin: true, body: {} }); location = "/welcome"; };
+
+// Start: a link from the welcome email (?u=…#t=…) looks the person up; otherwise
+// someone already signed in sees their workstations, and everyone else the lookup.
+if (params.get("u") && TOKEN) lookup(params.get("u").toLowerCase()); else meView();
+</script>
+</body></html>

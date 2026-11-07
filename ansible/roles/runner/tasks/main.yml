@@ -36,6 +36,8 @@
     - { name: ops, mode: "2750" }
     - { name: requests, mode: "2770" }       # the web side writes, the worker reads and deletes
     - { name: passwords, mode: "2770" }      # the web side creates (O_EXCL), Ansible reads as root
+    - { name: invites, mode: "2770" }        # `lab people seed` writes links; the web side spends them (O_EXCL)
+    - { name: onboarding, mode: "2750" }     # the worker writes how each sign-up went
     - { name: approvals, mode: "0700", group: root }
     - { name: tofu, mode: "0700", group: root }     # OpenTofu state can hold secrets
   loop_control:
@@ -48,12 +50,22 @@
     mode: "0750"
   loop: [/var/log/lab, /var/cache/lab/tofu-plugins]
 
+- name: SSH public keys people gave on sign-up (served to workstations, lab-keys.conf)
+  ansible.builtin.file:
+    path: /var/www/lab/keys
+    state: directory
+    mode: "0755"
+
 - name: Locks in /run, and how long logs and operation records are kept
   ansible.builtin.copy:
     dest: /etc/tmpfiles.d/lab.conf
     content: |
       # Managed by roles/runner. /run/lab: lablib's lock files and lab's temporary var files.
-      d /run/lab 0700 root root -
+      # 0711: others may pass through (not list) to reach signups/
+      d /run/lab 0711 root root -
+      # Sign-ups carry a new password, so memory only: the web side may create files
+      # here but not list them; the worker reads and deletes each at once (worker.py)
+      d /run/lab/signups 2730 root labportal -
       # Operation logs and records older than 30 days (the audit log keeps the history)
       e /var/log/lab - - - 30d
       e /var/lib/lab/ops - - - 30d

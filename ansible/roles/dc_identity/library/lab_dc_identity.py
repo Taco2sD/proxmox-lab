@@ -37,6 +37,7 @@ options:
 SAM = "/var/lib/samba/private/sam.ldb"
 WS_OU = "OU=Workstations,OU=Lab"      # computer accounts (pre-staged; the machine joins with its OTP)
 GUEST_OU = "OU=Guests,OU=Lab"         # owners of guest machines; deliberately in no role group
+STAFF_OU = "OU=Users,OU=Lab"          # the studio's people (roles/ad_people): may own machines, never deleted here
 
 
 class Dc:
@@ -72,11 +73,14 @@ class Dc:
             found[name] = {"dn": o["dn"][0], "groups": groups, "managedby": (o.get("managedby") or [None])[0]}
         return found
 
-    def guest_users(self):
-        """{name: dn} for user accounts in OU=Guests."""
+    def users(self, ou):
+        """{name: dn} for user accounts in an OU."""
         return {o["samaccountname"][0].lower(): o["dn"][0]
-                for o in self.search(f"{GUEST_OU},{self.base}", "(objectClass=user)", "sAMAccountName")
+                for o in self.search(f"{ou},{self.base}", "(objectClass=user)", "sAMAccountName")
                 if "samaccountname" in o}
+
+    def guest_users(self):
+        return self.users(GUEST_OU)
 
     def ou_exists(self, ou):
         return bool(self.search(f"{ou},{self.base}", "(objectClass=*)", "dn", scope="base"))
@@ -138,7 +142,9 @@ def main():
     if p["phase"] == "present":
         if any(desired[h].get("owner") for h in scope & set(desired)) and not dc.ou_exists(GUEST_OU):
             dc.do("create OU=Guests", ["samba-tool", "ou", "create", GUEST_OU])
-        users = dc.guest_users()
+        # Owners: visitors (OU=Guests, created below) or staff, whose accounts already exist
+        staff = dc.users(STAFF_OU)
+        users = {**dc.guest_users(), **staff}
         role_groups = {o["cn"][0] for o in dc.search(p["base_dn"], "(&(objectClass=group)(cn=role-*))", "cn")}
         # A new catalog/ entry needs its AD group; the group is how a machine learns its role
         for role in sorted({desired[h]["role"] for h in scope & set(desired)}):
@@ -159,6 +165,8 @@ def main():
                 dc.do(f"{host}: remove from {g}", ["samba-tool", "group", "removemembers", g, f"{host}$"])
             # Guest machines: the owner's account, and managedBy pointing at it
             owner = spec.get("owner")
+            if owner and owner not in users and spec.get("staff"):
+                m.fail_json(msg=f"{host}: owner {owner} has no account in {STAFF_OU}", actions=dc.actions)
             if owner and owner not in users:
                 n = int(spec["vmid"]) - 130         # RFC2307 IDs from the guest slot: unique, stable
                 dc.do(f"create guest account {owner}", [

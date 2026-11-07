@@ -61,11 +61,22 @@ LOCKS = Path(os.environ.get("LAB_LOCKS", "/run/lab"))   # flock files (roles/run
 EVENTS_LOG = Path("/var/log/nginx/lab-events.log")
 TOFU_ENV = Path("/etc/proxmox-lab/tofu.env")   # Proxmox API token (root only, never in git)
 
+# People (the welcome page, docs/self-service.md). AD is the record of who works here;
+# none of it is in git (the repository is public).
+PEOPLE = STATE / "people.json"        # AD's staff accounts, exported by worker.py every minute
+INVITES = STATE / "invites"           # invites/<user>.json: sign-up link (hash, expiry); <user>.used: spent
+MAILBOX = STATE / "mailbox.json"      # the demo mailbox's welcome emails (`lab people seed`)
+ONBOARDING = STATE / "onboarding"     # onboarding/<user>.json: how setting up that account went
+# Sign-ups carry the new password, so they go through memory only: /run is a tmpfs.
+SIGNUPS = LOCKS / "signups"           # signups/<user>.json: web side -> worker, read and deleted at once
+KEYS = Path("/var/www/lab/keys")      # keys/<user>: SSH public keys, served to workstations by nginx
+
 # Machines the portal must never touch, whatever a request says. They aren't in the
 # workstation inventory, so OpenTofu and the identity cleanup can't reach them anyway;
 # this is the second lock on the door.
 INFRA = frozenset({"pve01", "dc01", "mgmt01"})
 HOST_RE = re.compile(r"^ws[a-z0-9-]{1,13}$")    # NetBIOS limit: 15 characters
+USER_RE = re.compile(r"^[a-z][a-z0-9]{1,19}$")   # AD usernames (sAMAccountName: up to 20)
 MAC_PREFIX = "BC:24:11:00:00"                    # Proxmox's OUI; the last byte is the slot
 
 # A guest machine's build, as the owner's page shows it. Each step is recorded once,
@@ -107,6 +118,11 @@ def catalog(repo=None):
     """{role: definition} from catalog/*.yml."""
     repo = Path(repo or REPO)
     return {p.stem: _yaml(p) for p in sorted((repo / "catalog").glob("*.yml"))}
+
+
+def teams(repo=None):
+    """{team: definition} from inventory/teams.yml (see its header)."""
+    return _yaml(Path(repo or REPO) / "inventory" / "teams.yml")
 
 
 def fleet(repo=None):
@@ -152,8 +168,8 @@ def validate(machines, cat, cfg):
             problems.append(f"{where} mac {spec['mac']} should be {want['mac']} for vmid {spec['vmid']}")
         if spec["role"] not in cat:
             problems.append(f"{where} role '{spec['role']}' is not in catalog/")
-        if kind == "guest" and not re.fullmatch(r"[a-z][a-z0-9]{2,11}", str(spec.get("owner", ""))):
-            problems.append(f"{where} guest machines need an owner (3-12 lowercase letters or digits)")
+        if kind == "guest" and not USER_RE.fullmatch(str(spec.get("owner", ""))):
+            problems.append(f"{where} guest machines need an owner (an AD username)")
         for field in seen:
             value = str(spec[field]).upper()
             if value in seen[field]:
@@ -234,7 +250,8 @@ def guests():
 
 def guest_spec(record):
     """The inventory entry a guest record describes (same shape as a fleet file)."""
-    return {k: record[k] for k in ("vmid", "mac", "ip", "role", "owner")} | {"kind": "guest"}
+    return ({k: record[k] for k in ("vmid", "mac", "ip", "role", "owner")}
+            | {"kind": "guest", "staff": bool(record.get("staff"))})
 
 
 def desired(repo=None):
@@ -311,6 +328,155 @@ def approvals():
 def approve(host, by, op_id=None):
     write_json(APPROVALS / f"{host}.json", {"by": by, "op": op_id, "time": time.time()}, mode=0o600)
     audit("approve-destroy", host=host, by=by, op=op_id)
+
+
+# ---------------------------------------------------------------- people
+# The welcome page (portal.py) looks people up by username in PEOPLE, and lets someone
+# whose account doesn't exist yet type their details in from their welcome email. These
+# functions turn what they typed from memory into what they meant, and say what they
+# changed, so the page can show the corrections before anything is created.
+# Deterministic fuzzy matching (difflib) against closed lists: with nine teams and their
+# aliases that is exact enough, needs no model or API key, and can't invent a team.
+PARTICLES = {"van", "de", "der", "den", "het", "ten", "ter", "te", "von", "da", "di", "du", "le", "la", "del", "dos"}
+NOISE = {"senior", "sr", "junior", "jr", "lead", "principal", "staff", "head", "chief", "associate",
+         "team", "department", "dept", "the", "and", "of", "at", "in", "a", "i"}
+
+
+def _words(text):
+    return re.sub(r"[^a-z0-9]+", " ", str(text).lower()).split()
+
+
+def match_team(text, team_defs):
+    """The team someone meant ("Animatoin", "sound design", "Senior Cinematic
+    Animator") -> team key, or None if nothing is close enough."""
+    import difflib
+    probe = " ".join(_words(text))
+    if not probe:
+        return None
+    names = {}
+    for key, t in team_defs.items():
+        for n in [key, t["name"], *t.get("aliases", [])]:
+            names[" ".join(_words(n))] = key
+    if probe in names:
+        return names[probe]
+    def best(p, cutoff):
+        hit = difflib.get_close_matches(p, names, n=1, cutoff=cutoff)
+        return (difflib.SequenceMatcher(None, p, hit[0]).ratio(), names[hit[0]]) if hit else (0, None)
+    score, key = best(probe, 0.75)          # the whole phrase first: "tech producer" is Production
+    if key:
+        return key
+    words = [w for w in probe.split() if w not in NOISE and len(w) > 1]
+    scored = [best(w, 0.8) for w in words]  # then single words: "cinematic animator" -> cinematic
+    scored = [s for s in scored if s[1]]
+    return max(scored)[1] if scored else None
+
+
+def fold(text):
+    """ASCII for usernames: Lefèbre -> lefebre."""
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if c.isascii())
+
+
+def tidy_name(text, surname=False):
+    """Spacing and capitals, only where they're plainly wrong: "nick" -> "Nick",
+    "VAN DAM" -> "van Dam". Mixed case (MacBride) is left exactly as typed."""
+    text = " ".join(str(text).split())
+    if not text or (text != text.lower() and text != text.upper()):
+        return text
+    parts = text.lower().split()
+    last = len(parts) - 1
+    return " ".join(p if surname and p in PARTICLES and i < last else p[:1].upper() + p[1:]
+                    for i, p in enumerate(parts))
+
+
+def expected_username(given, surname):
+    """The studio's pattern: first letter of the first name, then the whole surname
+    (particles included), lowercase ASCII: Pim van Dam -> pvandam."""
+    first = fold(given).lower()[:1]
+    return re.sub(r"[^a-z0-9]", "", first + fold(surname).lower())[:20]
+
+
+def check_person(form, team_defs):
+    """A new hire's details as typed -> (cleaned, corrections, problems).
+    corrections: [{field, typed, now}] to show; problems: sentences that block."""
+    clean, corrections, problems = {}, [], []
+    def note(field, typed, now):
+        clean[field] = now
+        if str(typed).strip() != now:
+            corrections.append({"field": field, "typed": str(typed).strip(), "now": now})
+    note("given", form.get("given", ""), tidy_name(form.get("given", "")))
+    note("surname", form.get("surname", ""), tidy_name(form.get("surname", ""), surname=True))
+    title = " ".join(str(form.get("title", "")).split())
+    note("title", form.get("title", ""), tidy_name(title) if title == title.lower() else title)
+    typed_team = str(form.get("team", ""))
+    team = match_team(typed_team, team_defs) or (match_team(title, team_defs) if not typed_team.strip() else None)
+    clean["team"] = team
+    if team and team_defs[team]["name"] != typed_team.strip():
+        corrections.append({"field": "team", "typed": typed_team.strip(), "now": team_defs[team]["name"]})
+    user = str(form.get("username", "")).strip().lower()
+    clean["username"] = user
+    for field, label in (("given", "first name"), ("surname", "surname"), ("title", "job title")):
+        if not clean[field]:
+            problems.append(f"Fill in your {label}.")
+    if not team:
+        problems.append("Which team? Pick one from the list." if typed_team.strip() else "Fill in your team.")
+    if not USER_RE.fullmatch(user):
+        problems.append("A username is 2 to 20 lowercase letters or digits, as in your welcome email.")
+    elif clean["given"] and clean["surname"] and user != expected_username(clean["given"], clean["surname"]):
+        problems.append(f"That username doesn't fit the name: for {clean['given']} {clean['surname']} "
+                        f"it would be '{expected_username(clean['given'], clean['surname'])}'. "
+                        "Check both against your welcome email.")
+    return clean, corrections, problems
+
+
+def password_problems(password, user="", names=()):
+    """AD's default policy (Samba: complexity on, at least 7 characters), checked here
+    too so the page can say what's wrong before anything is sent to the DC."""
+    out = []
+    if len(password) < 8:
+        out.append("at least 8 characters")
+    classes = sum(any(f(c) for c in password) for f in (str.islower, str.isupper, str.isdigit,
+                                                         lambda c: not c.isalnum()))
+    if classes < 3:
+        out.append("three of: lowercase, uppercase, digits, symbols")
+    low = password.lower()
+    if any(len(n) >= 3 and n.lower() in low for n in (user, *names)):
+        out.append("not your username or name")
+    return out
+
+
+def people():
+    """{username: person} from PEOPLE (worker.py exports it from AD every minute)."""
+    return (read_json(PEOPLE) or {}).get("people", {})
+
+
+def dc_people(command, payload=None):
+    """Run /usr/local/sbin/lab-people on dc01 (roles/ad_people) over svc-runner's key,
+    JSON in on stdin and out on stdout. Root only (mgmt01's key for svc-runner)."""
+    dc01 = settings()["dc01_ip"]
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", f"svc-runner@{dc01}",
+                        "sudo", "/usr/local/sbin/lab-people", command],
+                       input=json.dumps(payload or {}), capture_output=True, text=True, timeout=60)
+    try:
+        out = json.loads(r.stdout or "{}")
+    except ValueError:
+        out = {}
+    if r.returncode != 0:
+        raise RuntimeError(out.get("error") or r.stderr.strip() or f"lab-people {command} failed")
+    return out
+
+
+def export_people():
+    """AD's staff accounts -> PEOPLE, for the web side (which can't reach AD itself)."""
+    found = dc_people("export")["people"]
+    write_json(PEOPLE, {"time": time.time(), "people": found})
+    return found
+
+
+def staff_host(vmid):
+    """A staff member's workstation is called ws<NN> after its VM ID (VM 1NN): a person
+    can have several, and every name fits NetBIOS. (Visitors' machines: ws-<username>.)"""
+    return f"ws{int(vmid) - 100}"
 
 
 # ---------------------------------------------------------------- reading tools' output

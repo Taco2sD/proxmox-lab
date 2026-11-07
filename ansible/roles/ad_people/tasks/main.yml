@@ -1,0 +1,19 @@
+# dc01: the studio's people. AD is the record of who works here (none of it is in
+# git: the repository is public). This role installs files/lab-people, which `lab` and
+# the portal's worker call from mgmt01 (lablib.dc_people), and makes the team security
+# groups match inventory/teams.yml. People's accounts come from `lab people seed` and
+# the welcome page (docs/self-service.md), never from here.
+
+- name: The people helper (JSON over stdin; see its docstring)
+  ansible.builtin.copy:
+    src: lab-people
+    dest: /usr/local/sbin/lab-people
+    mode: "0750"
+
+- name: Team security groups (security-<team>), admin teams nested in ws-admins
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/lab-people groups
+    stdin: "{{ {'teams': lookup('ansible.builtin.file', playbook_dir ~ '/../inventory/teams.yml') | from_yaml,
+               'admin_group': ad_admin_groups[0]} | to_json }}"
+  register: team_groups
+  changed_when: (team_groups.stdout | from_json).changed | length > 0
