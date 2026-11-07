@@ -2146,6 +2146,293 @@
    "signal": "Machine hibernated right after a manual start",
    "status": "fixed",
    "title": "A machine started outside My lab was hibernated as idle within a minute"
+  },
+  {
+   "commits": [],
+   "components": [
+    "backups",
+    "samba-ad",
+    "lab-cli",
+    "portal",
+    "proxmox-ve"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "pve01",
+    "dc01",
+    "mgmt01"
+   ],
+   "id": "KB-0100",
+   "path": "docs/kb/issues/KB-0100-servers-never-backed-up.md",
+   "patterns": [
+    "unwatched-safety-net",
+    "monitoring-blind-spot"
+   ],
+   "related": [
+    "KB-0101",
+    "KB-0103"
+   ],
+   "severity": "high",
+   "signal": "pre-mortem: pvesh get /nodes/pve01/storage/local/content --content backup (empty)",
+   "status": "open",
+   "title": "dc01 and mgmt01 have never been backed up, and nothing would notice if backups stopped"
+  },
+  {
+   "commits": [],
+   "components": [
+    "prometheus",
+    "alert-rules",
+    "grafana",
+    "mgmt01"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "mgmt01"
+   ],
+   "id": "KB-0101",
+   "path": "docs/kb/issues/KB-0101-alerts-reach-nobody.md",
+   "patterns": [
+    "monitoring-blind-spot",
+    "unwatched-safety-net"
+   ],
+   "related": [
+    "KB-0100",
+    "KB-0104"
+   ],
+   "severity": "high",
+   "signal": "pre-mortem: no alerting section in prometheus.yml; Prometheus runs on mgmt01, which it also monitors",
+   "status": "open",
+   "title": "Firing alerts reach nobody, and nothing watches the watcher"
+  },
+  {
+   "commits": [],
+   "components": [
+    "proxmox-ve",
+    "workstations",
+    "portal",
+    "samba-ad",
+    "node-exporter"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "workstations",
+    "pve01",
+    "dc01",
+    "mgmt01"
+   ],
+   "id": "KB-0102",
+   "path": "docs/kb/issues/KB-0102-visitor-machines-reach-management-plane.md",
+   "patterns": [
+    "flat-network-trust"
+   ],
+   "related": [],
+   "severity": "high",
+   "signal": "pre-mortem: TCP connects from ws35 to 10.10.10.10:22 and :8006; sshd -T on pve01",
+   "status": "open",
+   "title": "Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI"
+  },
+  {
+   "commits": [],
+   "components": [
+    "windows-host",
+    "proxmox-ve",
+    "time-sync"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "windows-host",
+    "pve01"
+   ],
+   "id": "KB-0103",
+   "path": "docs/kb/issues/KB-0103-windows-host-pending-reboot.md",
+   "patterns": [
+    "unmanaged-lower-layer"
+   ],
+   "related": [
+    "KB-0100"
+   ],
+   "severity": "medium",
+   "signal": "pre-mortem: registry key Component Based Servicing RebootPending exists on the Windows host",
+   "status": "open",
+   "title": "The Windows host has a pending servicing reboot that would take the whole lab down at an unplanned moment"
+  },
+  {
+   "commits": [],
+   "components": [
+    "alert-rules",
+    "dhcp",
+    "portal-relay",
+    "console-relay",
+    "time-sync",
+    "node-exporter"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "dc01",
+    "pve01",
+    "mgmt01"
+   ],
+   "id": "KB-0104",
+   "path": "docs/kb/issues/KB-0104-stopped-critical-services-raise-nothing.md",
+   "patterns": [
+    "monitoring-blind-spot"
+   ],
+   "related": [
+    "KB-0101"
+   ],
+   "severity": "medium",
+   "signal": "pre-mortem: alerts.yml has no rule on node_systemd_unit_state state=active/inactive",
+   "status": "open",
+   "title": "A critical service that is stopped (not failed) raises no alert, and DHCP is never probed"
+  },
+  {
+   "commits": [],
+   "components": [
+    "proxmox-ve",
+    "mgmt01",
+    "dc01",
+    "opentofu",
+    "wireguard-tunnel",
+    "acme-certs",
+    "vps"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "pve01",
+    "dc01",
+    "mgmt01",
+    "vps",
+    "windows-host"
+   ],
+   "id": "KB-0105",
+   "path": "docs/kb/issues/KB-0105-infrastructure-state-made-by-hand.md",
+   "patterns": [
+    "hand-made-state"
+   ],
+   "related": [
+    "KB-0100",
+    "KB-0010"
+   ],
+   "severity": "medium",
+   "signal": "pre-mortem: pct config 106 / qm config 105 compared with the repo",
+   "status": "open",
+   "title": "The infrastructure servers' own definitions live only on pve01 (made by hand, not in git)"
+  },
+  {
+   "commits": [],
+   "components": [
+    "proxmox-ve",
+    "golden-image",
+    "workstations"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "pve01"
+   ],
+   "id": "KB-0106",
+   "path": "docs/kb/issues/KB-0106-thin-pool-overcommit-unwatched-metadata.md",
+   "patterns": [
+    "disk-headroom",
+    "monitoring-blind-spot"
+   ],
+   "related": [
+    "KB-0010"
+   ],
+   "severity": "low",
+   "signal": "pre-mortem: lvs -a on pve01; lvm.conf thin_pool_autoextend_* unset",
+   "status": "open",
+   "title": "local-lvm is overcommitted with autoextend off, and its metadata use isn't monitored"
+  },
+  {
+   "commits": [],
+   "components": [
+    "samba-ad",
+    "alert-rules",
+    "backups"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "dc01"
+   ],
+   "id": "KB-0107",
+   "path": "docs/kb/issues/KB-0107-ad-database-health-unwatched.md",
+   "patterns": [
+    "monitoring-blind-spot"
+   ],
+   "related": [
+    "KB-0100"
+   ],
+   "severity": "low",
+   "signal": "pre-mortem: samba-tool dbcheck --cross-ncs on dc01 (read-only)",
+   "status": "open",
+   "title": "AD database health isn't checked; dbcheck already reports 5 dangling links from deleted workstations"
+  },
+  {
+   "commits": [],
+   "components": [
+    "opentofu",
+    "portal",
+    "guacamole",
+    "console-relay",
+    "pve-exporter",
+    "lab-cli"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "pve01",
+    "mgmt01"
+   ],
+   "id": "KB-0108",
+   "path": "docs/kb/issues/KB-0108-long-lived-secrets-without-rotation.md",
+   "patterns": [
+    "hand-made-state"
+   ],
+   "related": [
+    "KB-0102"
+   ],
+   "severity": "low",
+   "signal": "pre-mortem: pveum user token list (expire 0); docs/operations.md Secrets table",
+   "status": "open",
+   "title": "Every lab secret is long-lived, and none has a written rotation procedure"
+  },
+  {
+   "commits": [],
+   "components": [
+    "blackbox",
+    "lab-metrics",
+    "console-relay",
+    "alert-rules",
+    "workstations"
+   ],
+   "found": "2026-11-07",
+   "found_by": "review",
+   "hosts": [
+    "mgmt01",
+    "pve01",
+    "workstations"
+   ],
+   "id": "KB-0160",
+   "path": "docs/kb/issues/KB-0160-workstation-access-paths-unprobed.md",
+   "patterns": [
+    "monitoring-blind-spot"
+   ],
+   "related": [
+    "KB-0001"
+   ],
+   "resolved": "2026-11-07",
+   "severity": "medium",
+   "signal": "KB-0001 follow-up (relay refusals no longer show as failed units)",
+   "status": "fixed",
+   "title": "Nothing checked that people can actually reach their workstations (SSH, Desktop console)"
   }
  ],
  "patterns": [
@@ -2274,12 +2561,37 @@
   },
   {
    "components": [
+    "workstations",
+    "proxmox-ve",
+    "samba-ad",
+    "mgmt01",
+    "portal"
+   ],
+   "path": "docs/kb/patterns/flat-network-trust.md",
+   "pattern": "flat-network-trust",
+   "title": "Machines that untrusted people use share a network with the management plane"
+  },
+  {
+   "components": [
     "lab-cli",
     "reconciler"
    ],
    "path": "docs/kb/patterns/fresh-host-assumptions.md",
    "pattern": "fresh-host-assumptions",
    "title": "Code that only ever ran on a host prepared by hand"
+  },
+  {
+   "components": [
+    "proxmox-ve",
+    "mgmt01",
+    "dc01",
+    "vps",
+    "windows-host",
+    "opentofu"
+   ],
+   "path": "docs/kb/patterns/hand-made-state.md",
+   "pattern": "hand-made-state",
+   "title": "State made by hand that the repo neither creates nor checks"
   },
   {
    "components": [
@@ -2312,6 +2624,18 @@
    "path": "docs/kb/patterns/missing-baseline.md",
    "pattern": "missing-baseline",
    "title": "A host missed something every host should have"
+  },
+  {
+   "components": [
+    "prometheus",
+    "alert-rules",
+    "blackbox",
+    "node-exporter",
+    "grafana"
+   ],
+   "path": "docs/kb/patterns/monitoring-blind-spot.md",
+   "pattern": "monitoring-blind-spot",
+   "title": "A failure the monitoring can't see, or sees but tells nobody"
   },
   {
    "components": [
@@ -2364,6 +2688,28 @@
   },
   {
    "components": [
+    "windows-host",
+    "vps",
+    "proxmox-ve"
+   ],
+   "path": "docs/kb/patterns/unmanaged-lower-layer.md",
+   "pattern": "unmanaged-lower-layer",
+   "title": "The layer under the managed stack changes on its own schedule"
+  },
+  {
+   "components": [
+    "backups",
+    "acme-certs",
+    "alert-rules",
+    "prometheus",
+    "reconciler"
+   ],
+   "path": "docs/kb/patterns/unwatched-safety-net.md",
+   "pattern": "unwatched-safety-net",
+   "title": "A safety net is configured but its result is never checked"
+  },
+  {
+   "components": [
     "ansible-pull",
     "sssd",
     "guacamole",
@@ -2376,7 +2722,132 @@
    "title": "An upstream release changed behaviour the lab relied on"
   }
  ],
- "plans": [],
+ "plans": [
+  {
+   "components": [
+    "backups",
+    "samba-ad",
+    "mgmt01",
+    "dc01",
+    "windows-host",
+    "proxmox-ve"
+   ],
+   "created": "2026-11-07",
+   "issues": [
+    "KB-0100",
+    "KB-0103",
+    "KB-0107"
+   ],
+   "owner": "unassigned",
+   "path": "docs/kb/plans/PLAN-0001-recovery-readiness.md",
+   "patterns": [
+    "unwatched-safety-net",
+    "unmanaged-lower-layer"
+   ],
+   "plan": "PLAN-0001",
+   "status": "proposed",
+   "title": "Recovery readiness, before the interview on Tue 2026-11-10"
+  },
+  {
+   "components": [
+    "prometheus",
+    "alert-rules",
+    "blackbox",
+    "node-exporter",
+    "dhcp",
+    "portal-relay",
+    "console-relay",
+    "backups",
+    "samba-ad"
+   ],
+   "created": "2026-11-07",
+   "issues": [
+    "KB-0101",
+    "KB-0104",
+    "KB-0100",
+    "KB-0107",
+    "KB-0106"
+   ],
+   "owner": "unassigned",
+   "path": "docs/kb/plans/PLAN-0002-monitoring-coverage-gaps.md",
+   "patterns": [
+    "monitoring-blind-spot",
+    "unwatched-safety-net"
+   ],
+   "plan": "PLAN-0002",
+   "status": "proposed",
+   "title": "Close the monitoring's blind spots and deliver its alerts"
+  },
+  {
+   "components": [
+    "proxmox-ve",
+    "mgmt01",
+    "docker",
+    "prometheus",
+    "golden-image"
+   ],
+   "created": "2026-11-07",
+   "issues": [
+    "KB-0106",
+    "KB-0010"
+   ],
+   "owner": "unassigned",
+   "path": "docs/kb/plans/PLAN-0003-capacity-and-housekeeping.md",
+   "patterns": [
+    "disk-headroom"
+   ],
+   "plan": "PLAN-0003",
+   "status": "proposed",
+   "title": "Capacity headroom and housekeeping on pve01 and mgmt01"
+  },
+  {
+   "components": [
+    "opentofu",
+    "proxmox-ve",
+    "mgmt01",
+    "dc01",
+    "acme-certs",
+    "windows-host",
+    "lab-cli"
+   ],
+   "created": "2026-11-07",
+   "issues": [
+    "KB-0105",
+    "KB-0108",
+    "KB-0010"
+   ],
+   "owner": "unassigned",
+   "path": "docs/kb/plans/PLAN-0004-hand-made-state-into-git.md",
+   "patterns": [
+    "hand-made-state"
+   ],
+   "plan": "PLAN-0004",
+   "status": "proposed",
+   "title": "Bring hand-made infrastructure state and secret rotation into git"
+  },
+  {
+   "components": [
+    "workstations",
+    "proxmox-ve",
+    "samba-ad",
+    "mgmt01",
+    "opentofu",
+    "portal"
+   ],
+   "created": "2026-11-07",
+   "issues": [
+    "KB-0102"
+   ],
+   "owner": "unassigned",
+   "path": "docs/kb/plans/PLAN-0005-separate-visitors-from-management.md",
+   "patterns": [
+    "flat-network-trust"
+   ],
+   "plan": "PLAN-0005",
+   "status": "proposed",
+   "title": "Separate visitors' workstations from the management plane"
+  }
+ ],
  "runbooks": [
   {
    "alert": "CertificateExpiresSoon",
