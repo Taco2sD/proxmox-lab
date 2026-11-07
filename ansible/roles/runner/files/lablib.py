@@ -54,7 +54,7 @@ CHECKINS = STATE / "checkins.json"   # last finished configuration run per works
 IMAGE = STATE / "image.json"         # the current golden image (lab image build)
 RECONCILE = STATE / "reconcile.json"  # the reconciler's last run, and destroys awaiting approval
 LOGS = Path(os.environ.get("LAB_LOGS", "/var/log/lab"))   # one log per operation
-LOCKS = Path("/run/lab")             # flock files (roles/runner: tmpfiles.d)
+LOCKS = Path(os.environ.get("LAB_LOCKS", "/run/lab"))   # flock files (roles/runner: tmpfiles.d)
 # nginx on mgmt01 writes the requests workstations make while they come up (one-time
 # password fetches, /lab-events/...) to this log only (roles/lab_web: lab-events-log.conf)
 EVENTS_LOG = Path("/var/log/nginx/lab-events.log")

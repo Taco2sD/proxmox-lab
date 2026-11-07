@@ -10,7 +10,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 STATE = tempfile.mkdtemp()
-os.environ["LAB_STATE"] = STATE            # before the import: lablib reads it once
+os.environ["LAB_STATE"] = STATE            # before the import: lablib reads these once
+os.environ["LAB_LOCKS"] = tempfile.mkdtemp()  # (not /run/lab: tests run unprivileged)
 sys.path.insert(0, str(REPO / "ansible" / "roles" / "runner" / "files"))
 import lablib as L  # noqa: E402
 
