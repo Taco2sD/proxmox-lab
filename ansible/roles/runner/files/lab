@@ -10,7 +10,8 @@ each command with examples.
   lab plan                  show what the fleet's OpenTofu run would change (read-only)
   lab apply                 make the fleet match inventory/workstations/ (asks first)
   lab reimage HOST...       rebuild workstations from the current image (keeps AD account and role)
-  lab image build           build a new golden image over PXE, then switch to it
+  lab image build [KIND]    build new golden images over PXE (headless, desktop, or
+                            both), then switch to them
   lab deploy                configure the servers themselves (ansible/site.yml)
   lab reconcile             what the timer runs every minute: follow the release branch,
                             deploy, apply (destroys only with an admin's approval)
@@ -167,12 +168,14 @@ class Tofu:
         return json.loads(out)
 
 
-def tf_vars(extra):
-    """Variables every OpenTofu run needs, written to a root-only .tfvars.json."""
-    image = L.read_json(L.IMAGE)
-    if not image:
-        raise Fail("there is no golden image yet: run `lab image build`")
-    values = {"image_vmid": image["vmid"],
+def tf_vars(extra, kinds=()):
+    """Variables every OpenTofu run needs, written to a root-only .tfvars.json: among
+    them the golden image of each kind (terraform/*/main.tf pick one per role)."""
+    have = {k: v["vmid"] for k, v in L.images().items()}
+    for kind in kinds:
+        if kind not in have:
+            raise Fail(f"there is no {kind} golden image yet: run `lab image build {kind}`")
+    values = {"images": have,
               "ssh_keys": [Path("/root/pvelab.pub").read_text().strip()], **extra}
     path = L.LOCKS / f"{extra.get('host', 'fleet')}.tfvars.json"   # one per root+host: no leftovers
     L.LOCKS.mkdir(parents=True, exist_ok=True)
@@ -204,7 +207,8 @@ def fleet_apply(op, interactive, replace=()):
     tofu = Tofu(op, "fleet", "fleet")
     tofu.init()
     plan = "/run/lab/fleet.tfplan"
-    args = ["plan", "-input=false", f"-var-file={tf_vars({})}", f"-out={plan}"]
+    kinds = {L.catalog()[s["role"]]["kind"] for s in L.fleet().values()}
+    args = ["plan", "-input=false", f"-var-file={tf_vars({}, kinds)}", f"-out={plan}"]
     args += [f'-replace=module.workstation["{h}"].proxmox_virtual_environment_vm.this' for h in replace]
     tofu.tf(*args)
     changes = L.plan_changes(tofu.show_json(plan))
@@ -267,7 +271,7 @@ def guest_create(op, host, replace=False):
         tofu = Tofu(op, "guest", f"guest-{host}")
         tofu.init()
         varfile = tf_vars({"host": host, "vmid": r["vmid"], "mac": r["mac"], "role": r["role"],
-                           "owner": r["owner"]})
+                           "owner": r["owner"]}, [L.catalog()[r["role"]]["kind"]])
 
         def on_vm(_, what):
             if what == "Creation complete":
@@ -342,14 +346,23 @@ def fleet_delete(op, hosts):
 
 
 # ---------------------------------------------------------------- the golden image
-def image_build(op):
-    """Install a fresh Ubuntu over PXE into a builder VM (roles/pxe: its install record
-    and first-boot generalisation), convert it to a template, switch to it, and delete
-    the previous one. Clones are full copies, so old templates can go at once."""
+def image_build(op, kind):
+    """Install a fresh Ubuntu over PXE into a builder VM (roles/pxe: the install record
+    of this kind of image, and first-boot generalisation), convert it to a template,
+    switch to it, and delete the previous one of its kind. Clones are full copies, so
+    old templates can go at once. One build at a time: they share the builder's MAC."""
     cfg, px = L.settings(), L.Proxmox()
     b = cfg["image_builder"]
-    current = (L.read_json(L.IMAGE) or {}).get("vmid")
-    target = next(v for v in cfg["image_vmids"] if v != current)
+    current = L.images().get(kind, {}).get("vmid")
+    target = next(v for v in cfg["images"][kind]["vmids"] if v != current)
+    # The PXE menu finds the install record by the builder's MAC (roles/pxe): point that
+    # at this kind's record. A rename replaces the link in one step.
+    link = Path(f"/var/www/lab/autoinstall/{b['mac'].lower()}")
+    tmp = link.with_name(link.name + ".new")
+    tmp.unlink(missing_ok=True)
+    tmp.symlink_to(f"{b['name']}-{kind}")
+    os.replace(tmp, link)
+    op.say(f"building the {kind} image as VM {target} (install record {b['name']}-{kind})")
     node = f"/nodes/{px.node}/qemu"
     vms = px.vms()
     for vmid in (b["vmid"], target):            # leftovers of an earlier, failed build
@@ -370,33 +383,34 @@ def image_build(op):
         "scsi0": f"{ds}:{disk},discard=on,ssd=1,iothread=1",
         "net0": f"virtio={b['mac']},bridge={cfg['pve_bridge']}", "rng0": "source=/dev/urandom",
         "boot": "order=scsi0;net0", "agent": "enabled=1"}))
-    op.step("created")
+    op.step(f"{kind} created")
     px.wait(px.call("POST", f"{node}/{target}/status/start"))
-    op.step("installing")
+    op.step(f"{kind} installing")
     op.say("PXE install, first boot, generalise, power off: about 10 minutes")
     started = time.time()
     while px.call("GET", f"{node}/{target}/status/current")["status"] != "stopped":
         if time.time() - started > 40 * 60:
             raise Fail(f"the image install didn't finish in 40 minutes (VM {target} left running)")
         time.sleep(15)
-    op.step("installed")
+    op.step(f"{kind} installed")
     # Ready to be cloned: a cloud-init drive for each clone's hostname, network and key;
     # no network boot (clones boot their disk); and no package upgrade on first boot,
     # which would add minutes to every build. (ciupgrade is root-only in the API, so it
     # goes through svc-runner on pve01.)
     px.wait(px.call("POST", f"{node}/{target}/config", {
-        "ide2": f"{ds}:cloudinit", "boot": "order=scsi0", "memory": 2048, "name": f"lab-image-{time.strftime('%Y%m%d')}"}))
+        "ide2": f"{ds}:cloudinit", "boot": "order=scsi0", "memory": 2048,
+        "name": f"lab-image-{kind}-{time.strftime('%Y%m%d')}"}))
     rc, tail = op.run(["ssh", "-o", "BatchMode=yes", f"svc-runner@{cfg['pve01_ip']}",
                        f"sudo qm set {target} --ciupgrade 0"])
     if rc != 0:
         raise Fail(f"couldn't turn off the first-boot upgrade: {tail}")
     px.wait(px.call("POST", f"{node}/{target}/template"))
-    op.step("template")
+    op.step(f"{kind} template")
     with L.lock("image"):          # exclusive: no guest is cloning from the old one now
-        L.write_json(L.IMAGE, {"vmid": target, "built": time.time(), "op": op.id})
+        L.write_json(L.IMAGE, {**L.images(), kind: {"vmid": target, "built": time.time(), "op": op.id}})
         if current and current in px.vms():
             px.wait(px.call("DELETE", f"{node}/{current}?purge=1&destroy-unreferenced-disks=1"))
-    op.say(f"golden image is now VM {target}")
+    op.say(f"{kind} golden image is now VM {target}")
 
 
 # ---------------------------------------------------------------- reconcile
@@ -468,17 +482,20 @@ def status(as_json):
     for vmid, vm in sorted(vms.items()):
         if "lab-workstation" in vm["tags"] and vmid not in wanted:
             rows.append({"host": vm["name"], "kind": "orphan", "vmid": vmid, "vm": vm["status"]})
-    image = L.read_json(L.IMAGE) or {}
+    images = L.images()
     guest_problems = L.validate({h: s for h, s in want.items() if s["kind"] == "guest"}, L.catalog(), L.settings())
     if as_json:
-        print(json.dumps({"machines": rows, "image": image, "problems": guest_problems}, indent=1))
+        print(json.dumps({"machines": rows, "images": images, "problems": guest_problems}, indent=1))
         return 0
     print(f"{'HOST':12} {'KIND':7} {'VMID':5} {'IP':13} {'ROLE':11} {'OWNER':9} VM")
     for r in rows:
         print(f"{r['host']:12} {r['kind']:7} {r['vmid']:<5} {r.get('ip') or '':13} "
               f"{r.get('role') or '':11} {r.get('owner') or '':9} {r['vm']}")
-    print(f"\ngolden image: VM {image.get('vmid', 'none')}"
-          + (f", built {time.strftime('%Y-%m-%d %H:%M', time.localtime(image['built']))}" if image else ""))
+    print()
+    for kind in L.settings()["images"]:
+        image = images.get(kind)
+        print(f"{kind} golden image: " + (f"VM {image['vmid']}, built "
+              f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(image['built']))}" if image else "none"))
     for p in guest_problems:
         print("problem:", p)
     return 1 if guest_problems or any(r["vm"] != "running" for r in rows) else 0
@@ -510,8 +527,9 @@ def doctor():
         check(f"secret {f}", f.exists())
     problems = L.validate(L.fleet(), L.catalog(), cfg)
     check("inventory", not problems, "; ".join(problems))
-    image = L.read_json(L.IMAGE)
-    check("golden image", bool(image), f"VM {image['vmid']}" if image else "run `lab image build`")
+    for kind in cfg["images"]:
+        image = L.images().get(kind)
+        check(f"{kind} golden image", bool(image), f"VM {image['vmid']}" if image else f"run `lab image build {kind}`")
     for unit in ("nginx", "lab-portal", "lab-portal-worker", "lab-reconcile.timer", "docker", "tftpd-hpa"):
         ok, out = sh(f"systemctl is-active {unit}")
         check(f"service {unit}", ok, out)
@@ -603,7 +621,9 @@ def main():
     for name in ("doctor", "plan", "apply", "deploy", "reconcile"):
         sub.add_parser(name)
     sub.add_parser("reimage").add_argument("hosts", nargs="+")
-    sub.add_parser("image").add_argument("action", choices=["build"])
+    im = sub.add_parser("image")
+    im.add_argument("action", choices=["build"])
+    im.add_argument("kind", nargs="?", choices=["headless", "desktop"], help="default: both")
     g = sub.add_parser("guest")
     g.add_argument("action", choices=["create", "delete"])
     g.add_argument("host")
@@ -652,7 +672,8 @@ def main():
         kind = {"apply": "fleet-apply", "deploy": "deploy", "reimage": "reimage", "image": "image-build",
                 "guest": f"guest-{getattr(a, 'action', '')}"}[a.cmd]
         hosts = getattr(a, "hosts", None) or ([a.host] if a.cmd == "guest" else [])
-        op = operation(kind, actor(), hosts, echo=True)
+        params = {"kinds": [a.kind] if a.kind else list(L.settings()["images"])} if a.cmd == "image" else {}
+        op = operation(kind, actor(), hosts, echo=True, **params)
     try:
         if kind == "guest-create":
             guest_create(op, hosts[0])
@@ -665,7 +686,8 @@ def main():
             with L.lock("image-build", wait=False) as got:
                 if not got:
                     raise Fail("an image build is already running")
-                image_build(op)
+                for image_kind in op.record["params"].get("kinds") or list(L.settings()["images"]):
+                    image_build(op, image_kind)
         elif kind == "deploy":
             ansible(op, "site.yml")
         elif kind in ("fleet-apply", "reimage"):

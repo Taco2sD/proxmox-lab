@@ -15,7 +15,7 @@ variable "vmid" { type = number }
 variable "mac" { type = string }
 variable "role" { type = string }
 variable "owner" { type = string }
-variable "image_vmid" { type = number }
+variable "images" { type = map(number) } # golden image per kind (headless, desktop)
 variable "ssh_keys" { type = list(string) }
 
 locals {
@@ -24,6 +24,8 @@ locals {
   catalog  = yamldecode(file("${local.root}/catalog/${var.role}.yml"))
 }
 
+# image_vmid: the role's kind picks the golden image. lab checks it exists before a
+# build; a delete doesn't need it (the clone source only matters when the VM is created).
 module "workstation" {
   source = "../modules/workstation"
 
@@ -32,7 +34,7 @@ module "workstation" {
   mac        = var.mac
   size       = local.catalog.size
   tags       = ["lab-workstation", "guest", "role-${var.role}", "owner-${var.owner}"]
-  image_vmid = var.image_vmid
+  image_vmid = lookup(var.images, local.catalog.kind, 0)
   ssh_keys   = var.ssh_keys
   settings   = local.settings
 }

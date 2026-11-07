@@ -52,7 +52,7 @@ AUDIT = STATE / "audit.jsonl"        # append-only record of every operation ste
 OBSERVED = STATE / "observed.json"   # what Proxmox reports (worker.py, every minute)
 CHECKINS = STATE / "checkins.json"   # last finished configuration run per workstation IP
 ACTIVITY = STATE / "activity.json"   # last report of a session (SSH, desktop) per workstation IP
-IMAGE = STATE / "image.json"         # the current golden image (lab image build)
+IMAGE = STATE / "image.json"         # the current golden image of each kind (lab image build)
 RECONCILE = STATE / "reconcile.json"  # the reconciler's last run, and destroys awaiting approval
 PAUSED = STATE / "reconcile.paused"   # exists: the reconciler does nothing (docs/operations.md)
 LOGS = Path(os.environ.get("LAB_LOGS", "/var/log/lab"))   # one log per operation
@@ -272,6 +272,14 @@ def guest_phase(host, phase, **fields):
             r.setdefault("phases", {}).setdefault(phase, time.time())
         r.update(fields)
     return update_json(guest_path(host), change)
+
+
+def images():
+    """{kind: {vmid, built, op}}: the current golden image of each kind (headless,
+    desktop). Before there were two kinds, the file held the one image's record: that
+    was the minimal one, so it reads as headless."""
+    data = read_json(IMAGE) or {}
+    return {"headless": data} if "vmid" in data else data
 
 
 def admission(role, cat=None, cfg=None, owner=None):

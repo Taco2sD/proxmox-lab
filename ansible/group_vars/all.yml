@@ -72,9 +72,21 @@ staff_limits: {desktop: 1, headless: 4}
 # five minutes (roles/base: lab-activity).
 idle_hibernate_minutes: 60
 
-# The golden image every workstation is cloned from (`lab image build`). Two VM IDs, so
-# a new image is built next to the current one and only replaces it once it's done.
-image_vmids: [9000, 9001]
+# The golden images, one per kind of workstation (catalog/<role>.yml: kind), so every
+# clone starts with everything it needs and first boot only enrolls and checks: deploy
+# speed first. Each has two VM IDs: a new image is built next to the current one and
+# replaces it only once it's done (`lab image build [headless|desktop]`).
+#   headless  Ubuntu's minimal server: dev/jump boxes, light and quick
+#   desktop   the full Ubuntu server with XFCE + xrdp and every desktop role's packages
+images:
+  headless: {vmids: [9000, 9001], source: ubuntu-server-minimal}
+  desktop: {vmids: [9002, 9003], source: ubuntu-server}
+# Baked into both images (roles base and ad_join still make sure of them)
+image_packages: [qemu-guest-agent, ansible-core, git, curl, vim, htop, tmux, adcli, sssd-ad, sssd-tools,
+                 krb5-user, libnss-sss, libpam-sss, ldap-utils, libsasl2-modules-gssapi-mit, bind9-dnsutils]
+# The desktop itself (roles/desktop; baked into the desktop image): XFCE, light enough
+# for a VM without a GPU, and xrdp, which Guacamole opens in the browser
+desktop_packages: [xrdp, xorgxrdp, xfce4, xfce4-terminal, dbus-x11, adwaita-icon-theme, fonts-dejavu-core]
 # The temporary VM that installs the image over PXE (roles/pxe): its own MAC and
 # reserved address, so the PXE menu can find its install record.
 image_builder: {name: lab-image, vmid: 9009, mac: "BC:24:11:00:00:09", ip: 10.10.10.9}

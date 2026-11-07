@@ -5,9 +5,11 @@
 # same rule as SSH decides who may log in (SSSD: the owner and the admins).
 # Headless machines (kind: headless) never get any of this: they stay minimal.
 
-- name: XFCE and xrdp (no recommends; the minimal image stays lean)
+# Already in the desktop image (ansible/group_vars/all.yml: desktop_packages); this
+# keeps every desktop machine honest about it
+- name: XFCE and xrdp
   ansible.builtin.apt:
-    name: [xrdp, xorgxrdp, xfce4, xfce4-terminal, dbus-x11, adwaita-icon-theme, fonts-dejavu-core]
+    name: "{{ desktop_packages }}"
     install_recommends: false
     state: present
 

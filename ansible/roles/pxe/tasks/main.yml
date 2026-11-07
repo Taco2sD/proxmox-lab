@@ -11,34 +11,65 @@
     dest: /srv/tftp/grub/grub.cfg
     mode: "0644"
 
-- name: Install record directory for the image builder
+# One install record per kind of golden image (ansible/group_vars/all.yml: images):
+# lab-image-headless, lab-image-desktop. The desktop one bakes in the desktop and every
+# desktop role's packages, so those clones install nothing on first boot.
+- name: Packages of the desktop roles (catalog/*.yml with kind desktop), for the desktop image
+  ansible.builtin.set_fact:
+    pxe_desktop_role_packages: >-
+      {{ query('ansible.builtin.fileglob', playbook_dir ~ '/../catalog/*.yml')
+         | map('ansible.builtin.file') | map('from_yaml') | selectattr('kind', 'equalto', 'desktop')
+         | map(attribute='packages') | flatten | unique | sort }}
+
+- name: Install record directories, one per image kind
   ansible.builtin.file:
-    path: "/var/www/lab/autoinstall/{{ image_builder.name }}"
+    path: "/var/www/lab/autoinstall/{{ image_builder.name }}-{{ item }}"
     state: directory
     mode: "0755"
+  loop: "{{ images | list }}"
 
-- name: The image builder's autoinstall (user-data)
+- name: The image builder's autoinstall (user-data), per image kind
   ansible.builtin.template:
     src: image-user-data.yaml.j2
-    dest: "/var/www/lab/autoinstall/{{ image_builder.name }}/user-data"
+    dest: "/var/www/lab/autoinstall/{{ image_builder.name }}-{{ image_kind }}/user-data"
     mode: "0644"
+  loop: "{{ images | list }}"
+  loop_control:
+    loop_var: image_kind
   vars:
     pxe_admin_hash: "{{ lookup('ansible.builtin.file', pxe_admin_hash_file) | trim }}"
     pxe_admin_key: "{{ lookup('ansible.builtin.file', pxe_admin_key_file) | trim }}"
+    pxe_packages: >-
+      {{ image_packages + ((desktop_packages + pxe_desktop_role_packages) if image_kind == 'desktop' else []) }}
 
 - name: Write meta-data too (the NoCloud datasource wants both files)
   ansible.builtin.copy:
-    content: "instance-id: {{ image_builder.name }}\n"
-    dest: "/var/www/lab/autoinstall/{{ image_builder.name }}/meta-data"
+    content: "instance-id: {{ image_builder.name }}-{{ item }}\n"
+    dest: "/var/www/lab/autoinstall/{{ image_builder.name }}-{{ item }}/meta-data"
     mode: "0644"
+  loop: "{{ images | list }}"
 
-# GRUB asks for /autoinstall/<its MAC>/ (${net_default_mac}, lower case with colons)
-- name: The builder's MAC address leads to its record
+# GRUB asks for /autoinstall/<its MAC>/ (${net_default_mac}, lower case with colons).
+# That link is `lab image build`'s to point at the record of the kind it builds; this
+# only creates it on a new mgmt01, and retires the single record from before.
+- name: Is the builder's MAC link there?
+  ansible.builtin.stat:
+    path: "/var/www/lab/autoinstall/{{ image_builder.mac | lower }}"
+    follow: true
+  register: pxe_mac_link
+
+- name: The builder's MAC address leads to a record (only when missing or dangling)
   ansible.builtin.file:
-    src: "{{ image_builder.name }}"
+    src: "{{ image_builder.name }}-headless"
     dest: "/var/www/lab/autoinstall/{{ image_builder.mac | lower }}"
     state: link
     force: true
+  when: not pxe_mac_link.stat.exists
+
+- name: Retire the single install record from before there were two kinds
+  ansible.builtin.file:
+    path: "/var/www/lab/autoinstall/{{ image_builder.name }}"
+    state: absent
 
 - name: The ISO-only plain-HTTP site
   ansible.builtin.copy:

@@ -1,11 +1,12 @@
 #cloud-config
-# /var/www/lab/autoinstall/{{ image_builder.name }}/user-data on mgmt01 (roles/pxe): the
-# Ubuntu autoinstall that builds the lab's golden image. `lab image build` boots a VM
-# with the builder's MAC (ansible/group_vars/all.yml: image_builder); the PXE menu
-# (grub.cfg.j2) points the installer at this file through that MAC's link.
+# /var/www/lab/autoinstall/{{ image_builder.name }}-{{ image_kind }}/user-data on mgmt01
+# (roles/pxe): the Ubuntu autoinstall that builds the lab's {{ image_kind }} golden image.
+# `lab image build` points the builder's MAC link at this record and boots a VM with
+# that MAC (ansible/group_vars/all.yml: image_builder); the PXE menu (grub.cfg.j2) points
+# the installer at the record through the link.
 #
 # Three stages:
-#   1. the installer: a plain Ubuntu server with the guest agent, ansible-core and git
+#   1. the installer: Ubuntu with the packages below
 #   2. first boot of the builder (user-data below): install lab-firstboot (runs on every
 #      clone's first boot) and lab-generalize, which then removes everything machine-
 #      specific and powers off
@@ -35,15 +36,16 @@ autoinstall:
     layout:
       name: lvm
       sizing-policy: all
-  # Ubuntu's minimal server: no docs, no extra daemons. Everything a workstation needs
-  # on top comes from Ansible (roles/base, ad_join, desktop, catalog/ packages).
+  # This is the {{ image_kind }} image (ansible/group_vars/all.yml: images). headless:
+  # Ubuntu's minimal server; desktop: the full server plus the desktop and every desktop
+  # role's software. Both bake in what every workstation needs (image_packages), so a
+  # clone's first boot only enrolls it; Ansible still checks it all on every run.
   source:
-    id: ubuntu-server-minimal
+    id: {{ images[image_kind].source }}
   packages:
-    - qemu-guest-agent
-    - ansible-core
-    - git
-    - curl
+{% for p in pxe_packages %}
+    - {{ p }}
+{% endfor %}
   updates: security
   late-commands:
     - curtin in-target -- systemctl enable qemu-guest-agent

@@ -12,7 +12,7 @@ terraform {
 
 provider "proxmox" {}
 
-variable "image_vmid" { type = number }
+variable "images" { type = map(number) } # golden image per kind (headless, desktop)
 variable "ssh_keys" { type = list(string) }
 
 locals {
@@ -32,7 +32,7 @@ module "workstation" {
   mac        = each.value.mac
   size       = local.catalog[each.value.role].size
   tags       = ["lab-workstation", "fleet", "role-${each.value.role}"]
-  image_vmid = var.image_vmid
+  image_vmid = lookup(var.images, local.catalog[each.value.role].kind, 0)
   ssh_keys   = var.ssh_keys
   settings   = local.settings
 }

@@ -13,7 +13,7 @@ Written for whoever looks after the lab next. Everything runs from **mgmt01** as
 | `lab plan` | What the fleet's OpenTofu run would change | No |
 | `lab apply` | Make the fleet match `inventory/workstations/` (asks first; destroys need you to type their names) | Yes |
 | `lab reimage ws03 [...]` | Rebuild machines from the current image; they keep their AD account, role and owner | Yes |
-| `lab image build` | Build a new golden image over PXE (about 10 minutes), switch to it, delete the old one | Yes |
+| `lab image build [KIND]` | Build new golden images over PXE (headless about 6 minutes, desktop longer), switch to them, delete the old ones | Yes |
 | `lab deploy` | Configure the servers (`ansible/site.yml`) | Yes |
 | `lab guest create\|delete <host>` | Build or remove one portal machine from its record (the portal's worker normally does this) | Yes |
 
@@ -43,13 +43,22 @@ fleet machine from the admin page commits the removal and approves it in one ste
 commit (or the 30-minute run). Fix forward: push the fix; CI and the reconciler do the
 rest.
 
-## The golden image
+## The golden images
 
-Workstations are clones of a Proxmox template (VM 9000 or 9001; `/var/lib/lab/image.json`
-says which). `lab image build` makes a new one:
+Workstations are clones of a Proxmox template, one per kind of workstation (`images` in
+`ansible/group_vars/all.yml`; `/var/lib/lab/image.json` says which VM is current):
 
-1. creates the builder VM (9009, MAC from `image_builder` in `ansible/group_vars/all.yml`)
-   and starts it; its blank disk makes it network-boot,
+| Image | Template VMs | Source | For |
+|-------|--------------|--------|-----|
+| headless | 9000 / 9001 | Ubuntu minimal server + the AD client | dev/jump boxes (`kind: headless`) |
+| desktop | 9002 / 9003 | full Ubuntu server + XFCE, xrdp and every desktop role's packages | the graphical workstations (`kind: desktop`) |
+
+Everything is baked in so a clone's first boot only enrolls it (domain join, owner,
+one configuration run): deploy speed first. `lab image build [headless|desktop]` makes
+new ones (both without an argument, one after the other):
+
+1. points the builder's MAC link at that kind's install record, creates the builder VM
+   (9009, MAC from `image_builder`) and starts it; its blank disk makes it network-boot,
 2. dc01's DHCP sends it to mgmt01's TFTP (shim, GRUB, `roles/pxe`), GRUB starts the
    Ubuntu installer with the builder's install record (`image-user-data.yaml.j2`),
 3. after the install, the builder's first boot installs `lab-firstboot` (what every
