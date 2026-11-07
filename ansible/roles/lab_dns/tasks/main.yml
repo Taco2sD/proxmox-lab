@@ -26,3 +26,41 @@
     label: "{{ item.zone }}"
   register: zones
   changed_when: "'changed' in zones.stdout"
+
+# Samba's internal DNS answers on dc01's port 53, so systemd-resolved is off here (turned
+# off by hand when the DC was provisioned; written down now). /etc/resolv.conf points at
+# dc01 itself.
+- name: No systemd-resolved (Samba's DNS owns port 53)
+  ansible.builtin.systemd_service:
+    name: systemd-resolved
+    enabled: false
+    state: stopped
+
+# netplan's generator gives systemd-networkd-wait-online a drop-in with --dns, because
+# the installer's netplan file lists a nameserver. --dns asks systemd-resolved, which is
+# off (above), so wait-online failed at every boot and network-online.target came up
+# without waiting: samba-ad-dc and dnsmasq started on luck (a static address that's up
+# quickly). This drop-in sorts after netplan's 10-netplan.conf and replaces its command:
+# wait for a routable interface, not for DNS (dc01 is the DNS server).
+# docs/kb/issues/KB-0003-dc01-wait-online-needs-resolved.md
+- name: Drop-in directory for wait-online
+  ansible.builtin.file:
+    path: /etc/systemd/system/systemd-networkd-wait-online.service.d
+    state: directory
+    mode: "0755"
+
+- name: Wait-online without --dns (no systemd-resolved on a DC)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/systemd-networkd-wait-online.service.d/20-lab-no-resolved.conf
+    content: |
+      # Managed by Ansible (roles/lab_dns): see the task "Wait-online without --dns"
+      [Service]
+      ExecStart=
+      ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any -o routable
+    mode: "0644"
+  register: wait_online_dropin
+
+- name: Make systemd read the drop-in
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: wait_online_dropin.changed
