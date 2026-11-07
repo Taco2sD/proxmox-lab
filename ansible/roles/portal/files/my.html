@@ -130,7 +130,8 @@ function render() {
   $("#title").textContent = person?.name || user;
   $("#subtitle").textContent = [person?.title, person?.team_name].filter(Boolean).join(" · ") || "My lab";
   const full = machines.length >= CONFIG.max_machines;
-  view.replaceChildren(
+  // replaceChildren() would print a null as the text "null": the optional notes go through el()
+  view.replaceChildren(el("div", {},
     el("div", { class: "card" },
       el("div", { class: "profile" }, fact("Username", user), fact("Team", person?.team_name), fact("Job title", person?.title),
          fact("Manager", person?.manager), fact("Default workstation", roleName(person?.role))),
@@ -144,7 +145,7 @@ function render() {
     el("h2", { class: "section" }, `Workstations (${machines.length} of ${CONFIG.max_machines})`,
       el("button", { class: "primary", disabled: full, title: full ? "You have as many as anyone can have" : "", onclick: newWorkstation }, "+ New workstation")),
     machines.length ? el("div", { class: "grid" }, machines.map(machineCard))
-      : el("div", { class: "empty" }, el("p", {}, "No workstations yet."), el("button", { class: "primary", onclick: newWorkstation }, "Build your first")));
+      : el("div", { class: "empty" }, el("p", {}, "No workstations yet."), el("button", { class: "primary", onclick: newWorkstation }, "Build your first"))));
 }
 
 const fact = (k, v) => el("div", {}, el("div", { class: "k" }, k), el("div", { class: "v" }, v || "–"));

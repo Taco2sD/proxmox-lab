@@ -90,8 +90,13 @@ def operation(kind, actor, hosts=(), echo=True, record=None, **params):
     return Op(record, echo)
 
 
-def finish(op, error=None, state=None):
-    L.op_update(op.id, state=state or ("failed" if error else "done"), error=error)
+def finish(op, error=None, state=None, ended=False):
+    """Record how an operation ended. "waiting" means two things: a fleet delete waiting
+    for its commit to be released goes on later (no finish time), while a reconciler run
+    that stopped because a destroy needs approval is over (ended=True): the admin page's
+    log shows the first as in progress and the second as stopped."""
+    extra = {"finished": time.time()} if ended else {}
+    L.op_update(op.id, state=state or ("failed" if error else "done"), error=error, **extra)
     if error:
         op.say(f"FAILED: {error}")
 
@@ -436,7 +441,7 @@ def reconcile():
             finished = fleet_apply(op, interactive=False)
             state.update(commit=target, full_run=time.time(), failed_commit=None)
             L.write_json(L.RECONCILE, {**(L.read_json(L.RECONCILE) or {}), **state})
-            finish(op, state="done" if finished else "waiting")
+            finish(op, state="done" if finished else "waiting", ended=True)
         except Exception as e:                       # noqa: BLE001  (recorded, not raised)
             L.write_json(L.RECONCILE, {**(L.read_json(L.RECONCILE) or {}), "failed_commit": target,
                                        "full_run": time.time()})

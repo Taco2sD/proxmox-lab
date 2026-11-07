@@ -217,7 +217,7 @@ function render() {
         el("button", { class: "ghost", onclick: async () => { await api("/api/admin/logout", { body: {}, admin: true }); showLogin(); } }, "Sign out"))),
     pending.length ? el("div", { class: "notice warn", role: "alert" },
       el("span", {}, `A change on the release branch removes ${list(pending)}. Destroying a VM needs an admin's approval.`),
-      el("button", { class: "danger", onclick: () => approve(pending) }, `Approve destroying ${plural(pending.length, "machine")}`)) : null,
+      el("button", { class: "danger", onclick: () => approve(pending) }, `Approve destroying ${plural(pending.length, "machine")}`)) : "",   // not null: replaceChildren would print "null"
     el("div", { "aria-live": "polite" }, notices.map((x, i) =>
       el("div", { class: "notice " + x.kind, role: x.kind === "err" ? "alert" : "status" },
         el("span", {}, x.text),
@@ -251,9 +251,18 @@ function activityTable() {          // a list of elements (none without operatio
         el("td", {}, KIND[o.kind] || o.kind),
         el("td", { class: "mono" }, o.hosts.join(", ") || "–"),
         el("td", { class: "muted" }, o.actor),
-        el("td", {}, el("span", { class: "status " + ({ done: "ready", failed: "failed", waiting: "waiting" }[o.state] || "building") },
-                        { done: "Done", failed: "Failed", waiting: "Waiting", running: "Running", queued: "Queued" }[o.state] || o.state),
-                     o.error ? el("div", { class: "detail err" }, o.error) : null))))))];
+        el("td", {}, result(o), o.error ? el("div", { class: "detail err" }, o.error) : null))))))];
+}
+
+// The log says how things ended. What's happening now (waiting for checks, destroying)
+// is the machine rows' job above it, so an unfinished operation is just "In progress".
+// A reconciler run that ended because a destroy needs approval did finish: it says so.
+function result(o) {
+  const [cls, text] = o.state === "done" ? ["ready", "Done"]
+                    : o.state === "failed" ? ["failed", "Failed"]
+                    : o.state === "waiting" && o.finished ? ["waiting", "Stopped: needs approval"]
+                    : ["building", "In progress"];
+  return el("span", { class: "status " + cls }, text);
 }
 
 // ---------------------------------------------------------------- delete and approve
