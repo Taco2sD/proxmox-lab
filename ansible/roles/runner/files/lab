@@ -397,6 +397,8 @@ def reconcile():
     """Follow the release branch (CI moves it only to commits that passed): when it
     moves, deploy the servers and apply the fleet. Every FULL_RUN_EVERY seconds apply
     anyway, which repairs drift. Runs from lab-reconcile.timer every minute."""
+    if L.PAUSED.exists():
+        return 0                          # paused by hand (docs/operations.md)
     with L.lock("fleet", wait=False) as got:
         if not got:
             return 0                      # a run or a `lab apply` is still going
@@ -516,6 +518,7 @@ def doctor():
     for host, units in (("dc01_ip", "samba-ad-dc dnsmasq"), ("pve01_ip", "wg-quick@lab lab-portal-relay.socket")):
         ok, out = sh(f"ssh -o BatchMode=yes -o ConnectTimeout=5 svc-runner@{cfg[host]} systemctl is-active {units}")
         check(f"{host.split('_')[0]}: {units}", ok, out.replace("\n", " "))
+    check("reconciler not paused", not L.PAUSED.exists(), str(L.PAUSED) if L.PAUSED.exists() else "")
     state = L.read_json(L.RECONCILE) or {}
     age = time.time() - state.get("full_run", 0)
     check("reconciler", age < 2 * FULL_RUN_EVERY, f"last full run {int(age // 60)} min ago")

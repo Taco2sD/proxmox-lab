@@ -91,7 +91,10 @@ image, the catalogue and the inventory.
   isn't in git (OpenTofu states, guest records, secrets) is in that backup.
 - **dc01 is lost:** restore VM 105. Workstations reconnect by themselves.
 - **The reconciler is stuck:** `systemctl status lab-reconcile`, its log, then
-  `lab doctor`. `systemctl stop lab-reconcile.timer` pauses it.
+  `lab doctor`.
+- **Pause the reconciler** (maintenance, a migration): `touch /var/lib/lab/reconcile.paused`;
+  remove the file to resume. A deployment doesn't undo it (stopping the timer would be
+  undone by the next deploy), and `lab doctor` reports it.
 
 ## Rebuilding mgmt01 from nothing
 
