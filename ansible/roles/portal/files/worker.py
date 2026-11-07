@@ -32,6 +32,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 sys.path.insert(0, "/usr/local/lib/lab")
 import lablib as L  # noqa: E402
@@ -196,13 +197,16 @@ def hibernate_idle():
     (roles/base: lab-activity, every five minutes while someone is logged in)."""
     cfg = L.settings()
     limit = cfg["idle_hibernate_minutes"] * 60
-    vms = (L.read_json(L.OBSERVED) or {}).get("vms", {})
+    observed = L.read_json(L.OBSERVED) or {}
+    vms = observed.get("vms", {})
     activity = L.read_json(L.ACTIVITY) or {}
     for host, r in L.guests().items():
         vm = vms.get(str(r.get("vmid")))
         if not r.get("staff") or r.get("state") != "ready" or not vm or vm.get("power") != "running":
             continue
-        last = max(activity.get(r["ip"], 0), r.get("phases", {}).get("ready", 0), r.get("resumed", 0))
+        # started (or woken) outside My lab, e.g. in the Proxmox UI: active since then
+        started = observed.get("time", 0) - vm.get("uptime", 0)
+        last = max(activity.get(r["ip"], 0), r.get("phases", {}).get("ready", 0), r.get("resumed", 0), started)
         if time.time() - last > limit:
             power(host, "hibernate", f"idle for {cfg['idle_hibernate_minutes']} minutes")
 
@@ -377,13 +381,21 @@ def fail_stalled():
 
 
 def reap_ops():
-    """An operation still marked running whose unit is gone died without finishing
-    (crash, reboot): mark it failed so nothing waits on it forever."""
+    """An operation still marked running whose process is gone died without finishing
+    (crash, reboot, stopped by hand): mark it failed so nothing waits on it forever, and
+    the admin page's Activity doesn't say "In progress" forever. Operations this worker
+    started have a systemd unit; `lab` run in a terminal records its process id."""
     for op in L.ops(100):
-        unit = op.get("unit")          # only operations this worker started (not `lab` in a terminal)
-        if op["state"] != "running" or not unit:
+        unit, pid = op.get("unit"), op.get("pid")
+        if op["state"] != "running" or not (unit or pid):
             continue
-        active = subprocess.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0
+        if unit:
+            active = subprocess.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0
+        else:
+            try:
+                active = b"lab" in Path(f"/proc/{int(pid)}/cmdline").read_bytes()
+            except OSError:
+                active = False
         if not active and time.time() - op["created"] > 30:
             L.op_update(op["id"], state="failed", error="the operation stopped unexpectedly (see its log)")
             for host in op["hosts"]:

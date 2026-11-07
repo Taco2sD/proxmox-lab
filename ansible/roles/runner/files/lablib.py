@@ -621,6 +621,7 @@ class Proxmox:
             power = ("hibernated" if lock == "suspended" else
                      "paused" if status == "running" and v.get("qmpstatus") == "paused" else status)
             found[int(v["vmid"])] = {"name": v.get("name"), "status": status, "power": power,
+                                     "uptime": v.get("uptime", 0),                 # seconds since started
                                      "tags": [t for t in (v.get("tags") or "").split(";") if t],
                                      "template": bool(v.get("template"))}
         return found

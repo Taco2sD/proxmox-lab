@@ -87,7 +87,7 @@ class Op:
 def operation(kind, actor, hosts=(), echo=True, record=None, **params):
     """Start (or, for `lab op run`, resume) an operation record and return an Op."""
     record = record or L.new_op(kind, actor, hosts, **params)
-    L.op_update(record["id"], state="running")
+    L.op_update(record["id"], state="running", pid=os.getpid())   # the worker's reap_ops() checks on it
     return Op(record, echo)
 
 
