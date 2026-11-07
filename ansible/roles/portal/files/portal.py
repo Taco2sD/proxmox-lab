@@ -143,7 +143,7 @@ def guacamole_login(r, with_password=True, desktop=False):
         # xrdp's certificate is its own self-signed one, on the lab network only
         name, protocol = f"{r['host']} desktop", "rdp"
         params = {"hostname": r["ip"], "port": "3389", "username": r["owner"], "security": "any",
-                  "ignore-cert": "true", "resize-method": "display-update", "color-depth": "24"}
+                  "ignore-cert": "true", "resize-method": "display-update"}
     else:
         name, protocol = r["host"], "ssh"
         params = {"hostname": r["ip"], "port": "22", "username": r["owner"],

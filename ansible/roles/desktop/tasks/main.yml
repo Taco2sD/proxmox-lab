@@ -13,6 +13,14 @@
     install_recommends: false
     state: present
 
+# The full image's XFCE pulls in light-locker (recommended), which blanks xrdp sessions
+# to black: they have no local display for it to lock
+- name: No screen locker in remote sessions
+  ansible.builtin.apt:
+    name: light-locker
+    state: absent
+    purge: true
+
 # xrdp's TLS key is Ubuntu's snakeoil one (/etc/ssl/private), readable by ssl-cert only
 - name: Let xrdp read its TLS key
   ansible.builtin.user:
