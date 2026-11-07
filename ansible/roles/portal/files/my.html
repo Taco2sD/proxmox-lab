@@ -126,6 +126,7 @@ async function load() {
   if (!r.ok) { timer = setTimeout(load, 5000); return; }
   state = r.data;
   render();
+  if (state.machines.some(m => m.kind === "desktop")) warmGuacamole();
   const busy = state.signup_pending || state.onboarding.state === "account"
             || state.machines.some(m => m.state === "building" || m.state === "removing" || m.power_action);
   timer = setTimeout(load, busy ? 2000 : 20000);
@@ -231,6 +232,7 @@ async function openConsole(host, mode) {
   const w = window.open("", "_blank");
   const r = await api("/api/me/connect", { admin: true, body: { host, mode } });
   if (!r.ok) { w?.close(); return toast(r.data.error || "Couldn't open the console."); }
+  // Each click gets a fresh console ticket: if a desktop tab ever shows an error, Desktop again fixes it
   if (w) w.location = r.data.url; else location = r.data.url;
 }
 

@@ -235,6 +235,7 @@ function buildView(s) {
     const m = machines[0];
     if (person && !s.given) heading.textContent = `Thanks, ${person.given}! Building your workstation`;
     if (m) roleLine.textContent = `${roleName(m.role)} workstation · ${specs(CONFIG.roles[m.role]?.size)}`;
+    if (m?.kind === "desktop") warmGuacamole();       // its Open desktop button will need it
     const failed = ob.state === "failed" ? ob.error : m?.state === "failed" ? m.error : (!m && ob.error) ? ob.error : null;
     const reached = { start: s.started || ob.started || Date.now() / 1000,
                       account: (ob.state === "ready" || m) ? (ob.time || m?.phases?.queued) : null, ...(m?.phases || {}) };

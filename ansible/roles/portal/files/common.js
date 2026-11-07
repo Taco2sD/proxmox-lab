@@ -77,3 +77,14 @@ const aboutLeft = s => s > 90 ? `about ${Math.round(s / 60)} minutes left` : s >
 
 // A role's virtual hardware, as catalog/<role>.yml gives it: "2 vCPU · 3 GB RAM · 24 GB disk"
 const specs = size => size ? `${size.cores} vCPU · ${+(size.memory_mb / 1024).toFixed(1)} GB RAM · ${size.disk_gb} GB disk` : "";
+
+// ---- The browser console (my.html, welcome.html)
+// A desktop opens through a one-time Proxmox console ticket that must be used within
+// 10 seconds (portal.py: console_ticket). Loading Guacamole's app for the first time
+// can take longer than that, so pages that offer a Desktop button load it once in a
+// hidden frame beforehand: the click then only has to connect.
+function warmGuacamole() {
+  if (warmGuacamole.done) return;
+  warmGuacamole.done = true;
+  document.body.append(el("iframe", { src: "/guacamole/", hidden: true, tabindex: "-1", "aria-hidden": "true", title: "" }));
+}
