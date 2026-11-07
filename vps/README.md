@@ -32,7 +32,9 @@ without a session it redirects to a sign-in page at `/oauth2/sign_in`.
   start URL.
 - **One session for both sites:** a 12-hour, Secure, HttpOnly cookie for
   `.radicallydecent.com`; sign-in redirects only go back to `.radicallydecent.com`.
-- **Password guessing:** 5 attempts a minute per address (nginx `limit_req`).
+- **Password guessing:** 5 sign-in attempts a minute per address, then 429 (nginx
+  `limit_req`, `lab-gate-limits.conf`). Only POSTs count: visits to the page don't, so a
+  stale tab polling the Proxmox API can't lock you out.
 - The portal's admin page has its own sign-in after this one, with an AD account.
 
 ## Certificates without the registrar key: acme-dns
@@ -68,6 +70,7 @@ contact everywhere: jesse@radicallydecent.com.
 
 - `nginx-*.radicallydecent.com`: the three sites (`/etc/nginx/sites-available/`);
   `nginx-lab-gate.conf`: the gate snippet (`/etc/nginx/snippets/lab-gate.conf`).
+  `lab-gate-limits.conf`: its rate limit (`/etc/nginx/conf.d/lab-gate-limits.conf`).
   The main radicallydecent.com website on the same VPS is not part of this repo.
 - `oauth2-proxy/`: its config, systemd unit and page templates (`/etc/oauth2-proxy/`).
 - `acme-dns.cfg`, `acme-dns.service`: `/etc/acme-dns/config.cfg`, the systemd unit.
