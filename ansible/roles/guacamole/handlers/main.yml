@@ -1,0 +1,4 @@
+# Docker reads environment variables only when a container is created
+- name: Recreate Guacamole
+  ansible.builtin.command: docker compose -f /etc/lab-portal/guacamole/compose.yml up -d --force-recreate
+  changed_when: true

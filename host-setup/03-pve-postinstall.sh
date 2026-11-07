@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
 # Step 3: run ON the Proxmox node as root, e.g. from Windows:
-#   scp "C:\Users\Rare Earth\proxmox-lab\03-pve-postinstall.sh" root@10.10.10.10:/root/
+#   scp "C:\Users\Rare Earth\proxmox-lab\host-setup\03-pve-postinstall.sh" root@10.10.10.10:/root/
 #   ssh root@10.10.10.10 'bash /root/03-pve-postinstall.sh'
 #
-# Does: switch to the free no-subscription repo, full-upgrade, download Ubuntu
-# 26.04.1 Desktop (checksum verified), create VM 100 "ubuntu-ws01".
+# Does: repair the GRUB config the Gen 2 installer workaround leaves behind, switch to
+# the free no-subscription repository, full-upgrade. What comes after (dc01, mgmt01,
+# then everything through Ansible) is in docs/operations.md.
 # Read through it before running - every line is fair game in an interview.
 set -euo pipefail
-
-UBU_VER="26.04.1"
-UBU_ISO="ubuntu-${UBU_VER}-desktop-amd64.iso"
-UBU_URL="https://releases.ubuntu.com/${UBU_VER}"
-ISO_DIR="/var/lib/vz/template/iso"
-VMID=100
 
 echo "==> Checking for the Hyper-V installer boot workaround in GRUB config"
 # 04-boot-pve-installer.ps1 boots the installer with rdinit=/bin/sh -- -c "...".
@@ -46,38 +41,4 @@ echo "==> Updating system"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get -y full-upgrade
 
-echo "==> Downloading Ubuntu ${UBU_VER} Desktop ISO"
-cd "$ISO_DIR"
-if [[ ! -f "$UBU_ISO" ]]; then
-    wget -q --show-progress "${UBU_URL}/${UBU_ISO}"
-fi
-wget -q -O SHA256SUMS "${UBU_URL}/SHA256SUMS"
-grep " \*\?${UBU_ISO}\$" SHA256SUMS | sha256sum -c -
-rm -f SHA256SUMS
-
-echo "==> Creating VM ${VMID} (ubuntu-ws01)"
-if qm status "$VMID" &>/dev/null; then
-    echo "    VM ${VMID} already exists - skipping"
-else
-    qm create "$VMID" \
-        --name ubuntu-ws01 \
-        --ostype l26 \
-        --machine q35 \
-        --bios ovmf \
-        --efidisk0 local-lvm:1,efitype=4m,pre-enrolled-keys=1 \
-        --cpu host \
-        --cores 4 \
-        --memory 8192 \
-        --scsihw virtio-scsi-single \
-        --scsi0 local-lvm:64,iothread=1,discard=on,ssd=1 \
-        --net0 virtio,bridge=vmbr0 \
-        --ide2 "local:iso/${UBU_ISO},media=cdrom" \
-        --boot 'order=scsi0;ide2' \
-        --vga std \
-        --agent enabled=1
-fi
-
-qm config "$VMID"
-echo
-echo "Done. Start it with:  qm start ${VMID}"
-echo "Then open the console in the web UI: https://10.10.10.10:8006 -> VM 100 -> Console"
+echo "Done. Next: dc01 and mgmt01 (docs/operations.md, \"Rebuilding mgmt01 from nothing\")."

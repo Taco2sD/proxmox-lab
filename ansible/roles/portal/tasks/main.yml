@@ -1,0 +1,52 @@
+# mgmt01: the self-service portal (docs/self-service.md). Web side portal.py (user
+# labportal, created by roles/runner), dispatcher worker.py (root), their pages, and the
+# keys they sign with. Part of ansible/site.yml, after roles/runner (shared state, lablib).
+
+- name: Libraries (LDAP for the admin sign-in, AES for Guacamole logins)
+  ansible.builtin.apt:
+    name: [python3-ldap3, python3-cryptography]
+    state: present
+
+- name: Config directory
+  ansible.builtin.file:
+    path: /etc/lab-portal
+    state: directory
+    mode: "0755"
+
+# Both created once, readable by the web side only (group labportal). Rotating the
+# session key signs every admin out; the JSON key is shared with Guacamole.
+- name: Session key (signs the admin cookie) and Guacamole's JSON-auth key (128 bits)
+  ansible.builtin.shell: |
+    set -e
+    umask 027
+    openssl rand -hex {{ item.bytes }} > {{ item.path }}
+    chgrp labportal {{ item.path }}
+  args:
+    creates: "{{ item.path }}"
+  loop:
+    - { path: /etc/lab-portal/session-key, bytes: 32 }
+    - { path: /etc/lab-portal/json-secret-key, bytes: 16 }
+
+- name: Program files and pages
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /usr/local/lib/lab-portal/
+    mode: "0755"
+  loop: [portal.py, worker.py, portal.html, admin.html, common.css, common.js]
+  notify: Restart portal
+
+- name: Install the systemd units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/
+    mode: "0644"
+  loop: [lab-portal.service, lab-portal-worker.service]
+  notify: Restart portal
+
+- name: Start both at boot
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: [lab-portal, lab-portal-worker]

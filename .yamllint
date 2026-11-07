@@ -1,0 +1,23 @@
+# yamllint settings (tools/check: lint-yaml)
+extends: default
+
+rules:
+  line-length:
+    max: 130
+  document-start: disable          # playbooks and data files here don't use "---"
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false              # GitHub Actions' "on:" key
+  comments:
+    min-spaces-from-content: 1
+  braces:
+    max-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1
+  comments-indentation: disable    # comments explaining a list item sit above it
+  octal-values:                    # what ansible-lint requires
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+
+ignore: |
+  ansible/roles/pxe/templates/image-user-data.yaml.j2

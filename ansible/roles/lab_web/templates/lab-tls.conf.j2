@@ -1,0 +1,8 @@
+# /etc/nginx/snippets/lab-tls.conf on mgmt01, deployed by roles/lab_web: certificate and
+# TLS settings for {{ lab_fqdn }}. certbot renews the files (roles/acme_cert) and its
+# deploy hook reloads nginx.
+ssl_certificate /etc/letsencrypt/live/{{ lab_fqdn }}/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/{{ lab_fqdn }}/privkey.pem;
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_session_cache shared:lab_tls:1m;
+add_header Strict-Transport-Security "max-age=31536000" always;

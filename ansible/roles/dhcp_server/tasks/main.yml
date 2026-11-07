@@ -1,55 +1,35 @@
-# dnsmasq on dc01: DHCP for the lab, plus the hook that registers clients in AD DNS.
-# The base config and the hook script come from dc01/ in this repo; the workstation
-# reservations are generated from the inventory.
+# dc01: dnsmasq as the lab's DHCP server, and the hook that registers every lease in AD
+# DNS (files/dhcp-dns-update). Part of ansible/site.yml. Workstations' reservations
+# aren't here: roles/dc_identity writes one file per machine into /etc/dnsmasq-hosts.d.
 
-- name: Base DHCP config (dc01/lab-dhcp.conf)
+- name: Tools (dhcp_release, used by roles/dc_identity when a machine is removed)
+  ansible.builtin.apt:
+    name: dnsmasq-utils
+    state: present
+
+- name: Per-machine reservations directory (dhcp-hostsdir)
+  ansible.builtin.file:
+    path: /etc/dnsmasq-hosts.d
+    state: directory
+    mode: "0755"
+
+- name: DHCP -> DNS hook
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../dc01/lab-dhcp.conf"
+    src: dhcp-dns-update
+    dest: /usr/local/sbin/dhcp-dns-update
+    mode: "0755"
+
+- name: DHCP configuration
+  ansible.builtin.template:
+    src: lab-dhcp.conf.j2
     dest: /etc/dnsmasq.d/lab-dhcp.conf
     mode: "0644"
     validate: dnsmasq --test --conf-file=%s
   notify: Restart dnsmasq
 
-- name: DHCP -> DNS update hook (dc01/dhcp-dns-update)
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../dc01/dhcp-dns-update"
-    dest: /usr/local/sbin/dhcp-dns-update
-    mode: "0755"
-
-- name: Workstation reservations from inventory/workstations.yml
-  ansible.builtin.template:
-    src: lab-workstations.conf.j2
-    dest: /etc/dnsmasq.d/lab-workstations.conf
-    mode: "0644"
-    validate: dnsmasq --test --conf-file=%s
+# Before per-machine files, all workstation reservations were one generated file
+- name: Retire the old all-in-one reservations file
+  ansible.builtin.file:
+    path: /etc/dnsmasq.d/lab-workstations.conf
+    state: absent
   notify: Restart dnsmasq
-
-- name: dhcp_release (dnsmasq-utils), used by lab prune
-  ansible.builtin.apt:
-    name: dnsmasq-utils
-    state: present
-
-# ---- lab prune only ----------------------------------------------------------
-# A removed workstation's DHCP lease would otherwise live on for up to 12 hours, and
-# with it its A and PTR records (the hook keeps records while a lease exists).
-# Releasing the lease makes dnsmasq fire its normal "del" event right away; with the
-# reservation already gone, the hook deletes the records itself, as svc-dhcp-dns,
-# the account that owns them in AD DNS.
-- name: Current leases (lab prune)
-  ansible.builtin.slurp:
-    src: /var/lib/misc/dnsmasq.leases
-  register: leases
-  when: prune | default(false) | bool
-
-- name: Release leases of workstations that left the inventory (lab prune)
-  ansible.builtin.command:
-    argv: [dhcp_release, ens18, "{{ item.split()[2] }}", "{{ item.split()[1] }}", "{{ item.split()[4] }}"]
-  # (the loop is expanded before `when` is checked, hence the empty list off-prune)
-  loop: >-
-    {{ [] if not (prune | default(false) | bool) else
-       (leases.content | b64decode).splitlines()
-       | select('match', '^\S+ bc:24:11:00:00:')
-       | reject('search', ' (' ~ (workstations.values() | map(attribute='mac') | map('lower') | join('|')) ~ ') ')
-       | list }}
-  loop_control:
-    label: "{{ item.split()[3] }} {{ item.split()[2] }}"

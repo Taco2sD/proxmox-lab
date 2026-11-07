@@ -1,0 +1,12 @@
+# ruff settings (tools/check: python)
+line-length = 130
+target-version = "py310"
+extend-include = ["ansible/roles/runner/files/lab"]   # Python without a .py name
+
+[lint]
+select = ["E", "F", "W", "B", "UP", "BLE", "SIM"]
+ignore = [
+    "SIM105",   # try/except/pass reads fine where it's used
+    "SIM108",   # ternaries aren't always clearer
+    "UP017",    # datetime.UTC: keep 3.10 compatibility for older runners
+]

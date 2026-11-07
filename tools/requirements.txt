@@ -1,0 +1,7 @@
+# Python tools for tools/check (CI installs these; see docs/CONTRIBUTING.md).
+# Pinned so a new linter release can't fail a commit that didn't change.
+ansible-lint==26.11.0
+yamllint==1.38.0
+ruff==0.17.4
+PyYAML==6.0.3
+cryptography==50.0.2

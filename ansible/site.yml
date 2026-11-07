@@ -1,0 +1,28 @@
+# The servers' own configuration: everything on dc01, pve01 and mgmt01 that isn't
+# about one particular workstation. Run by `lab deploy`, and by the reconciler whenever
+# the release branch moves (ansible/roles/runner/files/lab: reconcile).
+#
+# Per-workstation things (AD accounts, DHCP reservations, join passwords) are
+# ansible/identity.yml's job; the workstations' own configuration is ansible/local.yml.
+
+- name: Domain controller (dc01) - DNS names, DHCP, LDAPS
+  hosts: dc01
+  roles:
+    - lab_dns        # AD DNS zones for the public names, so lab machines reach lab hosts
+    - dhcp_server    # dnsmasq: base config, per-host reservations directory, DNS hook
+    - samba_ldaps    # Let's Encrypt certificate for LDAPS (the admin page signs in over it)
+
+- name: Hypervisor (pve01) - portal relay and backups
+  hosts: pve01
+  roles:
+    - portal_relay   # tunnel -> mgmt01:8443, and the tunnel's firewall
+    - pve_backups    # nightly backups of dc01 and mgmt01
+
+- name: Runner (mgmt01) - lab, web, PXE, portal
+  hosts: mgmt01
+  roles:
+    - runner         # lab, lablib, state directories, the reconciler timer
+    - lab_web        # nginx: HTTPS sites, certificate, lab-events log, join-password rules
+    - pxe            # TFTP boot menu, the image builder's install record, ISO over HTTP
+    - portal         # web side and worker
+    - guacamole      # the browser terminal

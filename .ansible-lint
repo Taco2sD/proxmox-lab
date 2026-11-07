@@ -1,0 +1,20 @@
+# ansible-lint settings (tools/check: lint-ansible)
+profile: moderate
+
+exclude_paths:
+  - .github/
+  - terraform/
+  - vps/
+  - catalog/                   # data, not playbooks
+  - inventory/
+
+# Playbooks are in ansible/; the repo root has ansible.cfg for ansible-pull
+kinds:                         # first match wins
+  - inventory: "ansible/servers.yml"
+  - playbook: "ansible/*.yml"
+  - vars: "ansible/group_vars/*.yml"
+
+skip_list:
+  # Role variables are named for what they hold (lab_desired, image_builder, ...), not
+  # prefixed with the role's name: several roles share the same inputs.
+  - var-naming[no-role-prefix]

@@ -1,0 +1,28 @@
+# dc01: AD DNS zones for the lab's public names, so lab machines reach lab hosts by the
+# same names (and certificates) the internet uses. Part of ansible/site.yml.
+#
+#   lab.radicallydecent.com   -> mgmt01 (portal, join passwords, install records)
+#   dc01.lab...               -> dc01   (LDAPS for the admin page)
+#   pve.radicallydecent.com   -> pve01  (Proxmox API: OpenTofu and lab verify its certificate)
+#
+# Outside the lab these names resolve at the registrar (the VPS for lab. and pve.).
+
+- name: Zones and records
+  ansible.builtin.shell: |
+    set -e
+    zone={{ item.zone }}
+    samba-tool dns zonelist 127.0.0.1 -P | grep -q "pszZoneName *: $zone$" ||
+      { samba-tool dns zonecreate 127.0.0.1 "$zone" -P; echo changed; }
+    {% for r in item.records %}
+    samba-tool dns query 127.0.0.1 "$zone" {{ r.name }} A -P 2>/dev/null | grep -q "A: {{ r.ip }} " ||
+      { samba-tool dns add 127.0.0.1 "$zone" {{ r.name }} A {{ r.ip }} -P; echo changed; }
+    {% endfor %}
+  loop:
+    - zone: "{{ lab_fqdn }}"
+      records: [{name: "@", ip: "{{ mgmt01_ip }}"}, {name: "{{ ldaps_fqdn.split('.')[0] }}", ip: "{{ dc01_ip }}"}]
+    - zone: "{{ pve_fqdn }}"
+      records: [{name: "@", ip: "{{ pve01_ip }}"}]
+  loop_control:
+    label: "{{ item.zone }}"
+  register: zones
+  changed_when: "'changed' in zones.stdout"

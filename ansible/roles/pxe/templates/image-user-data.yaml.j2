@@ -1,0 +1,85 @@
+#cloud-config
+# /var/www/lab/autoinstall/{{ image_builder.name }}/user-data on mgmt01 (roles/pxe): the
+# Ubuntu autoinstall that builds the lab's golden image. `lab image build` boots a VM
+# with the builder's MAC (ansible/group_vars/all.yml: image_builder); the PXE menu
+# (grub.cfg.j2) points the installer at this file through that MAC's link.
+#
+# Three stages:
+#   1. the installer: a plain Ubuntu server with the guest agent, ansible-core and git
+#   2. first boot of the builder (user-data below): install lab-firstboot (runs on every
+#      clone's first boot) and lab-generalize, which then removes everything machine-
+#      specific and powers off
+#   3. `lab image build` turns the stopped VM into a Proxmox template
+# A bare-metal machine could use the same install with its own record; lab-firstboot
+# enrolls it the same way.
+#
+# Secrets: none in the repo. The admin password hash and SSH key are read on mgmt01 by
+# roles/pxe (defaults/main.yml) when this template is rendered.
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  timezone: Europe/Amsterdam
+  identity:
+    hostname: {{ image_builder.name }}
+    username: labadmin
+    realname: Local Admin
+    password: "{{ pxe_admin_hash }}"
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+      - "{{ pxe_admin_key }}"
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all
+  packages:
+    - qemu-guest-agent
+    - ansible-core
+    - git
+    - curl
+  updates: security
+  late-commands:
+    - curtin in-target -- systemctl enable qemu-guest-agent
+  # Stage 2: the builder's own first boot
+  user-data:
+    write_files:
+      - path: /usr/local/sbin/lab-firstboot
+        permissions: "0755"
+        content: |
+          {{ lookup('ansible.builtin.template', 'lab-firstboot.j2') | indent(10) }}
+      - path: /etc/systemd/system/lab-firstboot.service
+        content: |
+          # Enroll a new workstation once (see /usr/local/sbin/lab-firstboot)
+          [Unit]
+          Description=Enroll this new workstation in the lab (join password, ansible-pull)
+          Wants=network-online.target
+          After=network-online.target cloud-final.service
+          ConditionPathExists=!/var/lib/lab-firstboot.done
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/lab-firstboot
+          [Install]
+          WantedBy=multi-user.target
+      - path: /usr/local/sbin/lab-generalize
+        permissions: "0755"
+        content: |
+          {{ lookup('ansible.builtin.template', 'lab-generalize.j2') | indent(10) }}
+      - path: /etc/systemd/system/lab-generalize.service
+        content: |
+          # Turn the image builder into a golden image, after cloud-init is done
+          [Unit]
+          Description=Generalize the golden image and power off
+          After=cloud-final.service
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/lab-generalize
+    runcmd:
+      - [systemctl, daemon-reload]
+      # enabled now, runs on each clone's first boot (not on the builder: it powers off first)
+      - [systemctl, enable, lab-firstboot.service]
+      # --no-block: it waits for cloud-final, which is running this very command
+      - [systemctl, start, --no-block, lab-generalize.service]
+  shutdown: reboot

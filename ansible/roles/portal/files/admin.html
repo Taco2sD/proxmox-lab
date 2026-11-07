@@ -1,0 +1,301 @@
+<!doctype html>
+<!-- The lab admins' page, served by portal.py at /admin (deployed to
+     mgmt01:/usr/local/lib/lab-portal/ by roles/portal). Sign in with an AD account in
+     ws-admins (portal.py: ad_admin_login).
+
+     - Workstations: every fleet machine (inventory/workstations/) and guest machine
+       (portal records), whatever its state. The lab's own machines are not
+       workstations and never appear. Tick machines, then "Delete": a warning lists
+       each one. Guests are removed by `lab guest delete`; fleet machines by a commit
+       to main that the reconciler applies once CI passes (docs/self-service.md).
+     - Approvals: destroys the reconciler found in a commit made outside this page
+       wait for an admin's yes here.
+     - Activity: every operation `lab` ran, newest first (/var/lib/lab/ops).
+     Shared look and helpers: /static/common.css and /static/common.js. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab admin</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+main { max-width:1100px; margin:0 auto; padding:40px 16px 32px; }
+header { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:24px; }
+h2.section { font-size:1rem; margin:32px 0 10px; }
+.login { max-width:380px; margin:10vh auto 0; padding:26px; }
+.login h1 { margin-bottom:6px; }
+label { display:block; font-weight:600; margin:14px 0 6px; }
+input:not([type=checkbox]) { width:100%; padding:10px 12px; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+input[type=checkbox] { width:18px; height:18px; margin:0; accent-color:var(--accent); cursor:pointer; }
+input[type=checkbox]:disabled { cursor:not-allowed; }
+.error { color:var(--bad); min-height:1.4em; font-size:.9rem; margin:12px 0 0; }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; }
+th, td { text-align:left; padding:12px 14px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
+th { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600; }
+th.pick, td.pick { width:1%; padding-right:4px; }
+tbody tr.pickable { cursor:pointer; }
+tbody tr.selected { background:var(--sel); }
+tr:last-child td { border-bottom:0; }
+td.mono { font-size:.9rem; }
+.tag { display:inline-block; font-size:.75rem; font-weight:600; padding:1px 8px; border-radius:99px; background:var(--soft); color:var(--muted); }
+.detail { font-size:.8rem; color:var(--muted); white-space:normal; max-width:300px; }
+.detail.err { color:var(--bad); }
+.empty { padding:40px; text-align:center; color:var(--muted); }
+.bar { width:180px; margin:8px 0 4px; }
+.notice { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; border-radius:10px; padding:12px 14px;
+          margin-bottom:12px; border:1px solid var(--line); background:var(--card); font-size:.9rem; }
+.notice.ok { border-color:var(--ok); } .notice.err { border-color:var(--bad); } .notice.info { border-color:var(--accent); }
+.notice.warn { border-color:var(--warn); }
+.notice .x { background:transparent; border:0; color:var(--muted); font-size:1.2rem; line-height:1; padding:0 4px; }
+/* the selection bar under the table, kept in view at the bottom of the window */
+.actions { position:sticky; bottom:16px; margin-top:16px; display:flex; justify-content:space-between; align-items:center;
+           gap:12px; flex-wrap:wrap; padding:12px 16px; z-index:2; }
+.actions .right { display:flex; gap:8px; }
+.warning { background:var(--bad-soft); border:1px solid var(--bad); border-radius:10px; padding:12px 14px; margin:0 0 14px; }
+.warning strong { color:var(--bad); }
+.doomed { list-style:none; margin:0 0 14px; padding:0; border:1px solid var(--line); border-radius:10px; max-height:220px; overflow-y:auto; }
+.doomed li { display:flex; justify-content:space-between; gap:12px; padding:8px 12px; border-bottom:1px solid var(--line); font-size:.9rem; }
+.doomed li:last-child { border-bottom:0; }
+dialog ul.what { margin:6px 0 14px; padding-left:20px; color:var(--muted); font-size:.9rem; }
+.activity td { font-size:.875rem; }
+</style>
+<script src="/static/common.js"></script></head>
+<body>
+<main id="app"></main>
+
+<dialog id="del" aria-labelledby="del-title">
+  <h2 id="del-title"></h2>
+  <p class="warning"><strong>This cannot be undone.</strong> Each VM below will be completely destroyed, along with all its records.</p>
+  <ul class="doomed" id="del-list"></ul>
+  <p class="small" style="margin:0">For each machine this removes:</p>
+  <ul class="what">
+    <li>the VM and its disk</li>
+    <li>its AD computer account, and a guest machine's owner account</li>
+    <li>its DHCP reservation and lease, and its DNS A and PTR records</li>
+    <li>its one-time join password, and its entry in the inventory</li>
+  </ul>
+  <p class="muted small" id="del-fleet" hidden></p>
+  <div class="buttons"><button class="ghost" id="del-cancel" autofocus>Cancel</button><button class="danger" id="del-confirm"></button></div>
+</dialog>
+
+<script>
+const STATUS = { building: "Creating", ready: "Ready", failed: "Failed", removing: "Deleting",
+                 stopped: "Stopped", pending: "Waiting to be built" };
+let ROLE = {}, STEPS = {}, PHASES = [];                        // from /api/admin/machines
+const STEP_LABEL = {
+  queued: "Deletion requested", committed: "Removal committed to git", released: "Change passed the checks",
+  destroying: "Destroying the VM", destroyed: "VM and disk removed",
+  cleaning: "Removing AD accounts, DHCP lease, DNS records and join password",
+};
+
+// ---------------------------------------------------------------- sign in
+let timer = null, me = null;
+function showLogin(message = "") {
+  clearTimeout(timer);
+  const err = el("p", { class: "error", role: "alert" }, message);
+  const user = el("input", { id: "u", autocomplete: "username", autocapitalize: "none", spellcheck: "false", required: true });
+  const pass = el("input", { id: "p", type: "password", autocomplete: "current-password", required: true });
+  const go = el("button", { class: "primary", type: "submit", style: "width:100%;margin-top:18px" }, "Sign in");
+  const form = el("form", { class: "card login", onsubmit: async e => {
+      e.preventDefault(); go.disabled = true; go.textContent = "Signing in…"; err.textContent = "";
+      const r = await api("/api/admin/login", { body: { username: user.value.trim(), password: pass.value }, admin: true });
+      pass.value = "";
+      if (r.ok) return showMachines(r.data.user);
+      go.disabled = false; go.textContent = "Sign in";
+      err.textContent = r.status === 429 ? "Too many attempts. Wait a minute." : (r.data.error || "Sign-in failed.");
+    } },
+    el("h1", {}, "Lab admin"), el("p", { class: "muted small", style: "margin:0" }, "Sign in with your lab AD account (ws-admins)."),
+    el("label", { for: "u" }, "Username"), user, el("label", { for: "p" }, "Password"), pass, go, err);
+  $("#app").replaceChildren(form); user.focus();
+}
+
+// ---------------------------------------------------------------- state from the server
+const selected = new Set();     // hosts ticked for deletion
+const batches = [];             // deletions started here: { hosts, done: [], failed: [] }
+const notices = [];             // banners: { kind: "ok" | "err" | "info", text }
+let machines = [], pending = [], ops = [];
+
+function notice(kind, text) { notices.unshift({ kind, text }); notices.splice(4); }
+const list = hosts => hosts.length <= 3 ? hosts.join(", ") : `${hosts.slice(0, 3).join(", ")} and ${hosts.length - 3} more`;
+const selectable = m => m.state !== "removing";
+
+async function showMachines(user) {
+  me = user || me;
+  clearTimeout(timer);
+  const [r, a] = await Promise.all([api("/api/admin/machines"), api("/api/admin/activity")]);
+  if (r.status === 403) return showLogin("Your session ended. Sign in again.");
+  if (!r.ok) { timer = setTimeout(showMachines, 5000); return; }
+  machines = r.data.machines || []; pending = r.data.pending_destroys || []; STEPS = r.data.steps; PHASES = r.data.phases;
+  ROLE = r.data.roles || {};                                   // role names from catalog/
+  ops = (a.ok && a.data.ops) || [];
+  const byHost = Object.fromEntries(machines.map(m => [m.host, m]));
+
+  // Deletions started here: one banner per batch once every machine in it is done
+  for (const b of [...batches]) {
+    for (const h of b.hosts) {
+      if (b.done.includes(h) || b.failed.some(f => f[0] === h)) continue;
+      const m = byHost[h];
+      if (!m) b.done.push(h);
+      else if (m.state === "failed") b.failed.push([h, m.error || "unknown error"]);
+    }
+    if (b.done.length + b.failed.length === b.hosts.length) {
+      if (b.done.length) notice("ok", `Deleted ${list(b.done)}: VMs and disks, AD accounts, DHCP leases and DNS records, join passwords and inventory entries are all gone.`);
+      for (const [h, why] of b.failed) notice("err", `Deleting ${h} failed: ${why}. Tick it and delete again to retry.`);
+      batches.splice(batches.indexOf(b), 1);
+    }
+  }
+  for (const h of [...selected]) if (!byHost[h] || !selectable(byHost[h])) selected.delete(h);
+  const busy = render();
+  timer = setTimeout(showMachines, busy ? 2000 : 10000);
+}
+
+// ---------------------------------------------------------------- drawing
+function removalCell(m) {
+  const steps = STEPS[m.kind] || STEPS.guest;
+  const done = steps.filter(k => k in (m.removal || {})).length;
+  const now = steps.find(k => !(k in (m.removal || {})));
+  const waiting = m.kind === "fleet" && now === "released";      // CI and the reconciler, a few minutes
+  return [
+    el("span", { class: "status removing" }, waiting ? "Waiting for the checks" : "Deleting"),
+    el("div", { class: "bar warn", role: "progressbar", "aria-label": `Deleting ${m.host}`, "aria-valuemin": 0,
+                "aria-valuemax": steps.length + 1, "aria-valuenow": done },
+      el("div", { style: `width:${Math.round(100 * done / (steps.length + 1))}%` })),
+    el("div", { class: "detail" }, `Step ${Math.min(done + 1, steps.length)} of ${steps.length}: ${STEP_LABEL[now] || "finishing"}`),
+  ];
+}
+
+function statusCell(m) {
+  if (m.state === "removing") return removalCell(m);
+  const removalFailed = m.state === "failed" && m.removal;
+  const next = PHASES.find(([k]) => !(k in (m.phases || {})));
+  return [el("span", { class: "status " + m.state }, removalFailed ? "Deletion failed" : (STATUS[m.state] || m.state)),
+          m.state === "failed" ? el("div", { class: "detail err" }, m.error || "")
+          : m.state === "building" && next ? el("div", { class: "detail" }, `Now: ${next[1]}`) : null];
+}
+
+function lastActivity(m) {
+  const ph = Object.entries(m.phases || {}).sort((a, b) => b[1] - a[1]);
+  if (m.state === "building" && ph.length) return [Object.fromEntries(PHASES)[ph[0][0]] || ph[0][0], el("div", { class: "detail" }, ago(ph[0][1]))];
+  if (m.checkin) return ["Configured", el("div", { class: "detail" }, ago(m.checkin))];
+  return "–";
+}
+
+function render() {
+  const focused = document.activeElement?.dataset?.host;      // keep keyboard focus across refreshes
+  const pickable = machines.filter(selectable);
+  const all = pickable.length > 0 && pickable.every(m => selected.has(m.host));
+  const some = pickable.some(m => selected.has(m.host));
+  const toggle = (host, on) => { on ? selected.add(host) : selected.delete(host); render(); };
+
+  const rows = machines.map(m => {
+    const can = selectable(m), on = selected.has(m.host);
+    const box = el("input", { type: "checkbox", "data-host": m.host, checked: on, disabled: !can,
+                              "aria-label": `Select ${m.host}`, onchange: e => toggle(m.host, e.target.checked) });
+    return el("tr", { class: (on ? "selected " : "") + (can ? "pickable" : ""),
+                      onclick: e => { if (can && e.target !== box) toggle(m.host, !on); } },
+      el("td", { class: "pick" }, box),
+      el("td", { class: "mono" }, m.host, m.vmid ? el("div", { class: "detail" }, `VM ${m.vmid}`) : null),
+      el("td", {}, m.kind === "fleet" ? el("span", { class: "tag" }, "Fleet") : (m.owner || "–")),
+      el("td", {}, ROLE[m.role] || m.role || "–"),
+      el("td", { class: "mono" }, m.ip || "–"),
+      el("td", {}, statusCell(m)),
+      el("td", { class: "muted small" }, lastActivity(m)));
+  });
+  const busy = machines.some(m => ["building", "removing", "pending"].includes(m.state)) || batches.length > 0
+             || ops.some(o => ["queued", "running"].includes(o.state));
+  const head = el("input", { type: "checkbox", "data-host": "*", "aria-label": "Select all", checked: all,
+                             indeterminate: some && !all, disabled: !pickable.length,
+                             onchange: e => { for (const m of pickable) e.target.checked ? selected.add(m.host) : selected.delete(m.host); render(); } });
+  const n = selected.size;
+  $("#app").replaceChildren(
+    el("header", {},
+      el("div", {}, el("h1", {}, "Workstations"),
+        el("div", { class: "muted small" }, `${plural(machines.length, "machine")} · signed in as ${me}` + (busy ? " · updating live" : ""))),
+      el("div", { style: "display:flex;gap:8px" },
+        el("a", { href: "/", class: "muted small", style: "align-self:center;margin-right:8px" }, "Portal"),
+        el("button", { class: "ghost", onclick: async () => { await api("/api/admin/logout", { body: {}, admin: true }); showLogin(); } }, "Sign out"))),
+    pending.length ? el("div", { class: "notice warn", role: "alert" },
+      el("span", {}, `A change on the release branch removes ${list(pending)}. Destroying a VM needs an admin's approval.`),
+      el("button", { class: "danger", onclick: () => approve(pending) }, `Approve destroying ${plural(pending.length, "machine")}`)) : null,
+    el("div", { "aria-live": "polite" }, notices.map((x, i) =>
+      el("div", { class: "notice " + x.kind, role: x.kind === "err" ? "alert" : "status" },
+        el("span", {}, x.text),
+        el("button", { class: "x", "aria-label": "Dismiss", onclick: () => { notices.splice(i, 1); render(); } }, "×")))),
+    el("div", { class: "card table-wrap" }, rows.length
+      ? el("table", {}, el("thead", {}, el("tr", {}, el("th", { class: "pick" }, head),
+            ["Machine", "Owner", "Role", "Address", "Status", "Last activity"].map(h => el("th", {}, h)))),
+          el("tbody", {}, rows))
+      : el("div", { class: "empty" }, "No workstations.")),
+    el("div", { class: "card actions" },
+      el("span", { class: n ? "" : "muted", style: n ? "font-weight:600" : "" }, n ? `${plural(n, "workstation")} selected` : "Tick workstations to delete them."),
+      el("div", { class: "right" },
+        n ? el("button", { class: "ghost", onclick: () => { selected.clear(); render(); } }, "Clear") : null,
+        el("button", { class: "danger", disabled: !n, onclick: confirmDelete }, n ? `Delete ${plural(n, "workstation")}…` : "Delete…"))),
+    activityTable());
+  if (focused) document.querySelector(`[data-host="${CSS.escape(focused)}"]`)?.focus();
+  return busy;
+}
+
+// What `lab` did, newest first: builds, deletes, image builds, reconciler runs
+const KIND = { "guest-create": "Build guest", "guest-delete": "Delete guest", "fleet-delete": "Delete fleet machines",
+               "fleet-apply": "Apply fleet", reimage: "Reimage", "image-build": "Build golden image",
+               reconcile: "Reconcile", deploy: "Deploy servers" };
+function activityTable() {
+  if (!ops.length) return null;
+  return [el("h2", { class: "section" }, "Activity"),
+    el("div", { class: "card table-wrap activity" }, el("table", {},
+      el("thead", {}, el("tr", {}, ["When", "What", "Machines", "By", "Result"].map(h => el("th", {}, h)))),
+      el("tbody", {}, ops.map(o => el("tr", {},
+        el("td", { class: "muted" }, ago(o.created)),
+        el("td", {}, KIND[o.kind] || o.kind),
+        el("td", { class: "mono" }, o.hosts.join(", ") || "–"),
+        el("td", { class: "muted" }, o.actor),
+        el("td", {}, el("span", { class: "status " + ({ done: "ready", failed: "failed", waiting: "waiting" }[o.state] || "building") },
+                        { done: "Done", failed: "Failed", waiting: "Waiting", running: "Running", queued: "Queued" }[o.state] || o.state),
+                     o.error ? el("div", { class: "detail err" }, o.error) : null))))))];
+}
+
+// ---------------------------------------------------------------- delete and approve
+let targets = [];
+function confirmDelete() {
+  targets = machines.filter(m => selected.has(m.host) && selectable(m));
+  if (!targets.length) return;
+  const n = targets.length;
+  $("#del-title").textContent = `Delete ${plural(n, "workstation")} forever?`;
+  $("#del-list").replaceChildren(...targets.map(m => el("li", {},
+    el("span", { class: "mono", style: "font-weight:600" }, m.host),
+    el("span", { class: "muted" }, [m.kind === "fleet" ? "fleet" : m.owner ? `owner ${m.owner}` : null, m.ip, m.vmid ? `VM ${m.vmid}` : null].filter(Boolean).join(" · ")))));
+  const fleet = targets.filter(m => m.kind === "fleet").map(m => m.host);
+  $("#del-fleet").hidden = !fleet.length;
+  $("#del-fleet").textContent = fleet.length
+    ? `${list(fleet)} ${fleet.length === 1 ? "is a fleet machine: its file" : "are fleet machines: their files"} in inventory/workstations/ will be deleted in a commit to main. The machines go once that commit passes the checks, usually within a few minutes.` : "";
+  $("#del-confirm").textContent = `Delete ${plural(n, "workstation")} forever`;
+  $("#del").showModal();
+}
+$("#del-cancel").addEventListener("click", () => $("#del").close());
+$("#del-confirm").addEventListener("click", async () => {
+  const hosts = targets.map(m => m.host);
+  $("#del-confirm").disabled = true;
+  const r = await api("/api/admin/delete", { body: { hosts }, admin: true });
+  $("#del-confirm").disabled = false;
+  $("#del").close();
+  if (r.status === 403) return showLogin("Your session ended. Sign in again.");
+  if (r.ok) {
+    for (const h of hosts) selected.delete(h);
+    batches.push({ hosts, done: [], failed: [] });
+    notice("info", `Deleting ${list(hosts)}. Progress is shown in ${hosts.length === 1 ? "its row" : "their rows"}.`);
+  } else {
+    notice("err", `Couldn't start deleting: ${r.data.error || "unknown error"}`);
+  }
+  showMachines();
+});
+
+async function approve(hosts) {
+  if (!confirm(`Destroy ${hosts.join(", ")}? This cannot be undone: each VM and all its records are removed.`)) return;
+  const r = await api("/api/admin/approve", { body: { hosts }, admin: true });
+  notice(r.ok ? "info" : "err", r.ok ? `Approved. The reconciler destroys ${list(hosts)} within a minute.` : `Couldn't approve: ${r.data.error || "unknown error"}`);
+  showMachines();
+}
+
+(async () => { const r = await api("/api/admin/me"); r.ok ? showMachines(r.data.user) : showLogin(); })();
+</script>
+</body></html>

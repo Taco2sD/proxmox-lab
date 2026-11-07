@@ -1,0 +1,29 @@
+# pve01: nightly backups of the two servers whose state can't be rebuilt from this repo.
+# Part of ansible/site.yml.
+#
+#   dc01 (VM 105):   the AD database (users, groups, computer accounts, DNS)
+#   mgmt01 (CT 106): the runner's state: OpenTofu states, guest records, operations,
+#                    guest passwords, keys and acme-dns accounts (docs/operations.md)
+# Workstations aren't backed up: they're rebuilt from the image and the repo.
+#
+# Proxmox's own backup scheduler (vzdump), on local storage, keeping the last 7.
+# Restore: Proxmox UI -> the guest -> Backup, or `qmrestore` / `pct restore`.
+
+- name: Is the backup job there?
+  ansible.builtin.command: pvesh get /cluster/backup/lab-servers --output-format json
+  register: backup_job
+  changed_when: false
+  failed_when: false
+
+- name: Nightly backup job for dc01 and mgmt01
+  ansible.builtin.command: >-
+    pvesh {{ 'set' if backup_job.rc == 0 else 'create' }} /cluster/backup{{ '/lab-servers' if backup_job.rc == 0 else '' }}
+    {{ '--id lab-servers' if backup_job.rc != 0 else '' }}
+    --schedule '03:30' --vmid 105,106 --storage local --mode snapshot
+    --compress zstd --prune-backups keep-last=7 --enabled 1
+    --comment 'Managed by ansible/roles/pve_backups'
+  when: >-
+    backup_job.rc != 0 or
+    (backup_job.stdout | from_json).schedule != '03:30' or
+    (backup_job.stdout | from_json).vmid != '105,106'
+  changed_when: true

@@ -1,0 +1,25 @@
+#!/bin/sh
+# /usr/local/sbin/lab-firstboot in the golden image (roles/pxe: image-user-data.yaml.j2),
+# run once by lab-firstboot.service on a new workstation's first boot, after cloud-init
+# has set its hostname and network (Proxmox's cloud-init drive, terraform/modules/workstation).
+#
+# Enrolls the machine in the lab, the same way for a clone or a bare-metal install:
+#   1. fetch its one-time AD join password. mgmt01 serves it only to this machine's
+#      reserved address (roles/join_otp); the fetch is also the portal's "joining" signal
+#   2. run ansible-pull once: base, AD join with that password, and the role AD assigns
+#      (ansible/local.yml). From then on its own timer runs it every 30 minutes.
+set -eu
+host="$(hostname -s)"
+url="https://{{ lab_fqdn }}/otp/$host"
+
+umask 077
+tries=0
+until curl -fsS "$url" -o /etc/ad-join-otp; do
+  tries=$((tries + 1))
+  [ "$tries" -ge 30 ] && { echo "lab-firstboot: no join password for $host at $url" >&2; exit 1; }
+  sleep 10        # DHCP/DNS may still be settling on a just-cloned machine
+done
+
+flock /run/ansible-pull.lock ansible-pull --url {{ repo_url }} --checkout {{ release_branch }} \
+  --directory /var/lib/ansible-pull ansible/local.yml
+touch /var/lib/lab-firstboot.done

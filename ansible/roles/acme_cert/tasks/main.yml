@@ -1,0 +1,47 @@
+# A Let's Encrypt certificate for one name, by DNS-01 through acme-dns on the VPS
+# (vps/README.md explains why: lab machines can't be reached for HTTP checks, and the
+# registrar's API key controls the whole domain, so it stays off the lab).
+#
+# Included by roles/lab_web (mgmt01: lab.radicallydecent.com) and roles/samba_ldaps
+# (dc01: dc01.lab.radicallydecent.com) with:
+#   acme_cert_name     the name
+#   acme_accounts_dir  where its acme-dns account lives: <first label>.json, root only,
+#                      copied by hand and never committed (docs/operations.md, "Secrets")
+#   acme_deploy_hook   what to run after each issue and renewal
+# certbot.timer renews; the hook script (files/certbot-acme-dns-hook) answers the check.
+
+- name: Install certbot
+  ansible.builtin.apt:
+    name: certbot
+    state: present
+
+- name: The acme-dns hook
+  ansible.builtin.copy:
+    src: certbot-acme-dns-hook
+    dest: /usr/local/sbin/certbot-acme-dns-hook
+    mode: "0755"
+
+- name: Its settings (acme-dns API on the VPS, this machine's account directory)
+  ansible.builtin.copy:
+    content: |
+      # Managed by roles/acme_cert. Read by /usr/local/sbin/certbot-acme-dns-hook.
+      ACMEDNS_API={{ acme_dns_api }}
+      ACMEDNS_ACCOUNTS={{ acme_accounts_dir }}
+    dest: /etc/default/certbot-acme-dns
+    mode: "0644"
+
+- name: The acme-dns account must be in place for {{ acme_cert_name }}
+  ansible.builtin.stat:
+    path: "{{ acme_accounts_dir }}/{{ acme_cert_name.split('.')[0] }}.json"
+  register: acme_account
+  failed_when: not acme_account.stat.exists
+
+- name: Certificate (renewals reuse these settings) for {{ acme_cert_name }}
+  ansible.builtin.command: >-
+    certbot certonly --non-interactive --agree-tos --email {{ acme_email }}
+    --manual --preferred-challenges dns
+    --manual-auth-hook /usr/local/sbin/certbot-acme-dns-hook
+    --deploy-hook "{{ acme_deploy_hook }}"
+    --cert-name {{ acme_cert_name }} -d {{ acme_cert_name }}
+  args:
+    creates: "/etc/letsencrypt/live/{{ acme_cert_name }}/fullchain.pem"

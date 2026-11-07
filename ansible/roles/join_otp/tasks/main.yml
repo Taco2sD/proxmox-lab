@@ -1,0 +1,63 @@
+# mgmt01: one-time AD join passwords, each served only to the machine it belongs to.
+# Part of ansible/identity.yml (inputs explained there). The password itself was set on
+# the computer account by roles/dc_identity a moment earlier.
+#
+#   /var/www/lab/otp/<host>              the password (nginx: https://lab.../otp/<host>)
+#   /etc/nginx/lab-otp.d/<host>.conf     "/otp/<host> <ip>;": who may fetch it
+# roles/lab_web reads that directory into an nginx map (lab-otp-map.conf) and answers
+# 403 to anyone else (lab-otp.conf). The new machine fetches it on first boot
+# (lab-firstboot, from the golden image) and joins with it once (roles/ad_join), after
+# which it's worthless: the join sets the machine's own password.
+
+- name: Directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/www/lab/otp, group: www-data, mode: "0750" }
+    - { path: /etc/nginx/lab-otp.d, group: root, mode: "0755" }
+
+- name: Publish new join passwords
+  ansible.builtin.copy:
+    dest: "/var/www/lab/otp/{{ item.key }}"
+    content: "{{ item.value }}\n"
+    owner: root
+    group: www-data
+    mode: "0640"
+  loop: "{{ (lab_otp | default({})) | dict2items }}"
+  no_log: true
+
+- name: Only the machine's own reserved address may fetch it
+  ansible.builtin.copy:
+    dest: "/etc/nginx/lab-otp.d/{{ item }}.conf"
+    content: |
+      # Managed by roles/join_otp (ansible/identity.yml)
+      /otp/{{ item }} {{ lab_desired[item].ip }};
+    mode: "0644"
+  loop: "{{ (lab_otp | default({})).keys() | list }}"
+  notify: Reload nginx
+
+# ---- cleanup: machines in scope that are no longer desired ---------------------------
+- name: Published passwords and access rules
+  ansible.builtin.find:
+    paths: [/var/www/lab/otp, /etc/nginx/lab-otp.d]
+  register: otp_files
+  when: lab_phase == 'cleanup'
+
+- name: Withdraw those of machines that are gone
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ otp_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  vars:
+    host: "{{ item.path | basename | regex_replace('\\.conf$', '') }}"
+  when:
+    - lab_phase == 'cleanup'
+    - host not in lab_desired
+    - lab_scope == 'all' or host in lab_scope
+  notify: Reload nginx

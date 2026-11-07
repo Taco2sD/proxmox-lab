@@ -1,0 +1,59 @@
+# Checks on every push and pull request, then the release.
+#
+#   checks   tools/check: linters, unit tests, inventory rules, broken references in
+#            comments, OpenTofu validation. GitHub's own runners; no secrets, nothing
+#            here can reach the lab.
+#   release  on main only, when checks pass: fast-forward the `stable` branch to this
+#            commit. The lab follows `stable` (workstations' ansible-pull, mgmt01's
+#            reconciler), so a commit that fails its checks never reaches the lab.
+#
+# Deliberately no self-hosted runner in the lab: on a public repository, pull requests
+# from forks could run code on it. The lab pulls instead (docs/operations.md).
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.13.9
+          tofu_wrapper: false
+      - name: Tools
+        run: pip install -r tools/requirements.txt
+      - name: tools/check
+        run: tools/check
+
+  release:
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # Fast-forward only: if stable isn't an ancestor of this commit, someone changed
+      # it by hand, and that needs a person to look at it.
+      - name: Move stable to this commit
+        run: git push origin "${GITHUB_SHA}:refs/heads/stable"

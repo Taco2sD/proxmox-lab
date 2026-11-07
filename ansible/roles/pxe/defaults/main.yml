@@ -1,0 +1,8 @@
+# What the PXE install uses on mgmt01 (roles/pxe). The kernel, initrd and ISO were put in
+# place by hand from the Ubuntu ISO (docs/operations.md, "Rebuilding mgmt01").
+pxe_kernel_dir: ubuntu-26.04                       # under /srv/tftp
+pxe_iso: ubuntu-26.04.1-live-server-amd64.iso      # under /var/www/html (lab-boot.conf)
+
+# Secrets read on mgmt01 when the install record is rendered, never stored in the repo:
+pxe_admin_hash_file: /root/provision/labadmin.hash   # labadmin's SHA-512 crypt hash
+pxe_admin_key_file: /root/pvelab.pub                 # the lab's public SSH key

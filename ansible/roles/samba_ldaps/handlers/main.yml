@@ -1,0 +1,5 @@
+# Samba reads its certificate only at startup: a few seconds of AD downtime
+- name: Restart Samba
+  ansible.builtin.systemd_service:
+    name: samba-ad-dc
+    state: restarted

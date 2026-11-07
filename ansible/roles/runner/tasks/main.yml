@@ -1,0 +1,87 @@
+# mgmt01 as the lab's runner: the `lab` command and its library, the state directories
+# the runner and the portal share, and the reconciler that applies the release branch.
+# Part of ansible/site.yml. (OpenTofu and ansible-core themselves were installed by hand
+# when mgmt01 was built: docs/operations.md, "Rebuilding mgmt01".)
+
+- name: Python YAML (lablib reads the settings, catalogue and inventory)
+  ansible.builtin.apt:
+    name: [python3-yaml, git]
+    state: present
+
+- name: OpenTofu and its API token must be in place
+  ansible.builtin.stat:
+    path: /etc/proxmox-lab/tofu.env
+  register: tofu_env
+  failed_when: not tofu_env.stat.exists or tofu_env.stat.mode != '0600'
+
+# The portal's web side runs as labportal and reads most of the shared state (group
+# labportal); see lablib.py ("where things are") for what each directory holds.
+- name: The portal's unprivileged user
+  ansible.builtin.user:
+    name: labportal
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: State directories
+  ansible.builtin.file:
+    path: "/var/lib/lab/{{ item.name }}"
+    state: directory
+    owner: root
+    group: "{{ item.group | default('labportal') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: "", mode: "2750" }             # setgid: files created here are group labportal
+    - { name: guests, mode: "2750" }         # root writes, the web side reads
+    - { name: ops, mode: "2750" }
+    - { name: requests, mode: "2770" }       # the web side writes, the worker reads and deletes
+    - { name: passwords, mode: "2770" }      # the web side creates (O_EXCL), Ansible reads as root
+    - { name: approvals, mode: "0700", group: root }
+    - { name: tofu, mode: "0700", group: root }     # OpenTofu state can hold secrets
+  loop_control:
+    label: "/var/lib/lab/{{ item.name }}"
+
+- name: Log and cache directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0750"
+  loop: [/var/log/lab, /var/cache/lab/tofu-plugins]
+
+- name: Locks in /run, and how long logs and operation records are kept
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/lab.conf
+    content: |
+      # Managed by roles/runner. /run/lab: lablib's lock files and lab's temporary var files.
+      d /run/lab 0700 root root -
+      # Operation logs and records older than 30 days (the audit log keeps the history)
+      e /var/log/lab - - - 30d
+      e /var/lib/lab/ops - - - 30d
+    mode: "0644"
+  notify: Apply tmpfiles
+
+- name: The library and the command
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: lablib.py, dest: /usr/local/lib/lab/lablib.py, mode: "0644" }
+    - { src: lab, dest: /usr/local/bin/lab, mode: "0755" }
+
+- name: The reconciler (every minute; see `lab reconcile`)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-reconcile.service, lab-reconcile.timer]
+  notify: Reload systemd
+
+- name: Make systemd see new units before enabling them
+  ansible.builtin.meta: flush_handlers
+
+- name: Reconciler timer running
+  ansible.builtin.systemd_service:
+    name: lab-reconcile.timer
+    enabled: true
+    state: started

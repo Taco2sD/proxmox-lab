@@ -1,0 +1,43 @@
+# mgmt01: Apache Guacamole, the browser terminal behind the portal's Connect button
+# (files/compose.yml explains the setup). Part of ansible/site.yml, after roles/portal,
+# which creates the JSON-auth key both sides use.
+#
+# Docker in this unprivileged container needs the LXC features nesting=1,keyctl=1
+# (set on pve01 once: pct set 106 --features nesting=1,keyctl=1).
+
+- name: Docker and Compose
+  ansible.builtin.apt:
+    name: [docker.io, docker-compose-v2]
+    state: present
+
+- name: Config directory
+  ansible.builtin.file:
+    path: /etc/lab-portal/guacamole
+    state: directory
+    mode: "0755"
+
+- name: Read the JSON-auth key (roles/portal created it)
+  ansible.builtin.slurp:
+    src: /etc/lab-portal/json-secret-key
+  register: json_key
+  no_log: true
+
+- name: Guacamole's environment file
+  ansible.builtin.copy:
+    content: "JSON_SECRET_KEY={{ json_key.content | b64decode | trim }}\n"
+    dest: /etc/lab-portal/guacamole.env
+    mode: "0600"
+  no_log: true
+  notify: Recreate Guacamole
+
+- name: Compose file
+  ansible.builtin.copy:
+    src: compose.yml
+    dest: /etc/lab-portal/guacamole/compose.yml
+    mode: "0644"
+  notify: Recreate Guacamole
+
+- name: Guacamole running
+  ansible.builtin.command: docker compose -f /etc/lab-portal/guacamole/compose.yml up -d
+  register: compose_up
+  changed_when: "'Started' in compose_up.stderr or 'Created' in compose_up.stderr"

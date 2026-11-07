@@ -1,0 +1,14 @@
+# /etc/systemd/system/lab-reconcile.service on mgmt01 (roles/runner), started by
+# lab-reconcile.timer. Follows the release branch: deploys the servers when it moves and
+# applies the fleet (see `lab reconcile` in /usr/local/bin/lab). Most runs find nothing
+# to do and exit in a second. Logs: journalctl -u lab-reconcile, and each run that did
+# something is an operation on the admin page.
+[Unit]
+Description=Apply the lab's release branch (lab reconcile)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/usr/local/bin/lab reconcile

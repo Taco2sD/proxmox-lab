@@ -1,0 +1,15 @@
+#!/bin/sh
+# /usr/local/sbin/samba-tls-deploy on dc01 (roles/samba_ldaps): certbot --deploy-hook. Gives Samba's LDAPS
+# the new Let's Encrypt certificate for dc01.lab.radicallydecent.com (DNS-01 via
+# acme-dns; the name resolves to dc01 only inside the lab) and restarts Samba, which
+# reads its certificate only at startup: a few seconds of AD downtime every ~60 days.
+#
+# Replaces Samba's auto-generated self-signed certificate, which strict X.509 checking
+# (Python 3.13+) rejects: "Missing Authority Key Identifier".
+set -eu
+live=/etc/letsencrypt/live/dc01.lab.radicallydecent.com
+tls=/var/lib/samba/private/tls
+install -m 0644 "$live/fullchain.pem" "$tls/le-cert.pem"
+install -m 0644 "$live/chain.pem"     "$tls/le-chain.pem"
+install -m 0600 "$live/privkey.pem"   "$tls/le-key.pem"     # Samba insists on 0600
+systemctl restart samba-ad-dc

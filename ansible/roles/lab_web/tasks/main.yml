@@ -1,0 +1,67 @@
+# mgmt01's nginx: the HTTPS sites (lab-portal.conf.j2), their certificate, the
+# lab-events log, and the rules that serve each join password to one address.
+# Part of ansible/site.yml. What each file does is in its own header.
+
+- name: Certificate for {{ lab_fqdn }}
+  ansible.builtin.include_role:
+    name: acme_cert
+  vars:
+    acme_cert_name: "{{ lab_fqdn }}"
+    acme_accounts_dir: /etc/lab-portal/acme-dns
+    acme_deploy_hook: systemctl reload nginx
+
+- name: Web root for install records and join passwords
+  ansible.builtin.file:
+    path: /var/www/lab
+    state: directory
+    mode: "0755"
+
+- name: Snippets and http-context config
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: lab-limits.conf, dest: /etc/nginx/conf.d/lab-limits.conf }
+    - { src: lab-events-log.conf, dest: /etc/nginx/conf.d/lab-events-log.conf }
+    - { src: lab-otp-map.conf, dest: /etc/nginx/conf.d/lab-otp-map.conf }
+    - { src: lab-portal-locations.conf, dest: /etc/nginx/snippets/lab-portal-locations.conf }
+    - { src: lab-events.conf, dest: /etc/nginx/snippets/lab-events.conf }
+    - { src: lab-otp.conf, dest: /etc/nginx/snippets/lab-otp.conf }
+  notify: Reload nginx
+
+- name: Join-password access rules directory (filled by roles/join_otp)
+  ansible.builtin.file:
+    path: /etc/nginx/lab-otp.d
+    state: directory
+    mode: "0755"
+
+- name: TLS settings and the site
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: lab-tls.conf.j2, dest: /etc/nginx/snippets/lab-tls.conf }
+    - { src: lab-portal.conf.j2, dest: /etc/nginx/sites-available/lab-portal }
+  notify: Reload nginx
+
+- name: Enable the site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/lab-portal
+    dest: /etc/nginx/sites-enabled/lab-portal
+    state: link
+  notify: Reload nginx
+
+# Files from earlier designs: the OTP rules keyed on /autoinstall/<host>/otp, and the
+# plain-HTTP default site. Removed so nothing serves the old paths.
+- name: Retire old configuration
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/sites-enabled/default
+    - /etc/nginx/conf.d/autoinstall-otp.conf
+    - /etc/nginx/snippets/autoinstall-otp.conf
+    - /etc/nginx/autoinstall-otp.map
+  notify: Reload nginx

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Every check the repository has, in one place. CI runs exactly this
+# (.github/workflows/checks.yml); run it yourself before pushing:
+#
+#   tools/check            all checks
+#   tools/check python     only the named groups: lint-yaml lint-ansible lint-shell
+#                          python inventory references tofu
+#
+# Needs: yamllint, ansible-lint, shellcheck, ruff, tofu, python3 with PyYAML.
+# (docs/CONTRIBUTING.md: how to get them.)
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 2
+
+groups=("$@")
+[ ${#groups[@]} -eq 0 ] && groups=(lint-yaml lint-ansible lint-shell python inventory references tofu)
+failed=()
+
+run() {   # run <group> <command...>: print a header, remember failures
+  local group=$1; shift
+  echo "==> $group: $*"
+  "$@" || failed+=("$group")
+}
+
+for g in "${groups[@]}"; do
+  case $g in
+    lint-yaml)    run "$g" yamllint --strict . ;;
+    lint-ansible) run "$g" ansible-lint ;;
+    lint-shell)   run "$g" shellcheck tools/check \
+                    ansible/roles/acme_cert/files/certbot-acme-dns-hook \
+                    ansible/roles/dhcp_server/files/dhcp-dns-update \
+                    ansible/roles/samba_ldaps/files/samba-tls-deploy \
+                    host-setup/03-pve-postinstall.sh ;;
+    python)       run "$g" ruff check .
+                  run "$g" python3 -m unittest discover -s tests -v ;;
+    inventory)    run "$g" python3 tools/validate_inventory.py ;;
+    references)   run "$g" python3 tools/check_references.py ;;
+    tofu)         run "$g" tofu fmt -check -recursive terraform
+                  for root in fleet guest; do
+                    run "$g" tofu -chdir="terraform/$root" init -backend=false -input=false -no-color >/dev/null
+                    run "$g" tofu -chdir="terraform/$root" validate -no-color
+                  done ;;
+    *) echo "unknown check group: $g" >&2; exit 2 ;;
+  esac
+done
+
+if [ ${#failed[@]} -gt 0 ]; then
+  echo "FAILED: ${failed[*]}"
+  exit 1
+fi
+echo "All checks passed."

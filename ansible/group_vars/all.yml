@@ -1,15 +1,68 @@
-# Settings shared by every role. No secrets here: this repo is public on GitHub.
+# The lab's settings: the one place each of these values is written down.
+#
+# Three readers, so plain values only (no Jinja "{{ }}" in here; only Ansible could
+# evaluate it):
+#   - Ansible: every playbook in ansible/ (group "all", including ansible-pull on the
+#     workstations, which runs ansible/local.yml from its own checkout)
+#   - OpenTofu: terraform/fleet and terraform/guest read it with yamldecode()
+#   - Python: lablib.settings() (ansible/roles/runner/files/lablib.py), used by `lab`,
+#     the portal and the checks in tools/
+#
+# No secrets: this repository is public. Secrets live on the hosts that need them; see
+# docs/operations.md ("Secrets") for the list and where each one is.
+
+# ---- Active Directory (Samba AD DC on dc01) ------------------------------------------
 ad_domain: ad.lab.internal
 ad_realm: AD.LAB.INTERNAL
 ad_dc: dc01.ad.lab.internal
 ad_base_dn: DC=ad,DC=lab,DC=internal
+# Allowed to log in on every workstation, with sudo (ad_join role)
+ad_admin_groups: [ws-admins]
+
+# ---- Network: Hyper-V's internal switch "LabNAT", 10.10.10.0/24 ----------------------
+# host-setup/02-create-pve-vm.ps1 creates it; the Windows host is the gateway.
+lab_gateway: 10.10.10.1
+dc01_ip: 10.10.10.5
+mgmt01_ip: 10.10.10.6
+mgmt01_mac: "BC:24:11:52:66:01"
+pve01_ip: 10.10.10.10
+dhcp_pool: [10.10.10.100, 10.10.10.199]
+
+# ---- Public names (DNS at the registrar; Let's Encrypt certificates via acme-dns) ----
+# Inside the lab, AD DNS answers these with lab addresses (roles/lab_dns), so lab
+# machines use the same names and certificates as the internet.
+lab_fqdn: lab.radicallydecent.com       # portal, browser terminal, one-time passwords
+pve_fqdn: pve.radicallydecent.com       # Proxmox UI and API
+ldaps_fqdn: dc01.lab.radicallydecent.com  # dc01's LDAPS (exists only inside the lab)
+acme_email: jesse@radicallydecent.com
+acme_dns_api: https://acme-ns.radicallydecent.com
+
+# ---- Git ----------------------------------------------------------------------------
 repo_url: https://github.com/Taco2sD/proxmox-lab.git
-playbook: ansible/local.yml
+repo_push_url: git@github.com:Taco2sD/proxmox-lab.git
+# What the lab runs: CI fast-forwards this branch to each commit on main that passes
+# its checks (.github/workflows/checks.yml). Workstations (ansible-pull) and mgmt01's
+# reconciler (`lab reconcile`) follow it; nobody commits to it directly.
+release_branch: stable
 pull_interval: 30min
 
-# Access control. Machine role (AD computer group) -> AD user groups allowed to log in.
-role_login_groups:
-  role-artist: [artists]
-  role-programmer: [programmers]
-# Allowed to log in on every workstation, and get sudo.
-ad_admin_groups: [ws-admins]
+# ---- Proxmox -------------------------------------------------------------------------
+pve_node: pve01
+pve_datastore: local-lvm
+pve_bridge: vmbr0
+
+# ---- Workstations --------------------------------------------------------------------
+# Address plan: a workstation's VM ID decides its addresses.
+#   VM 1NN  ->  IP 10.10.10.NN, MAC BC:24:11:00:00:NN
+# Fleet machines (inventory/workstations/) use the fleet range, machines requested
+# through the portal the guest range. tools/validate_inventory.py enforces all of this.
+fleet_vmids: [121, 129]
+guest_vmids: [131, 139]
+max_guests: 4
+
+# The golden image every workstation is cloned from (`lab image build`). Two VM IDs, so
+# a new image is built next to the current one and only replaces it once it's done.
+image_vmids: [9000, 9001]
+# The temporary VM that installs the image over PXE (roles/pxe): its own MAC and
+# reserved address, so the PXE menu can find its install record.
+image_builder: {name: lab-image, vmid: 9009, mac: "BC:24:11:00:00:09", ip: 10.10.10.9}

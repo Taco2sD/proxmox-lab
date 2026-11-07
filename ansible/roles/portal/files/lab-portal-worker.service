@@ -1,0 +1,16 @@
+# /etc/systemd/system/lab-portal-worker.service on mgmt01 (roles/portal): the portal's
+# dispatcher (worker.py). Root, like `lab` itself: it starts operations as transient
+# units (lab-op-<id>), reads Proxmox with the API token, and asks dc01 whether a username
+# exists. Restarting it never interrupts an operation (they're separate units).
+[Unit]
+Description=Lab self-service portal (worker)
+After=network-online.target nginx.service
+
+[Service]
+Environment=HOME=/root
+ExecStart=/usr/bin/python3 /usr/local/lib/lab-portal/worker.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

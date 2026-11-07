@@ -1,0 +1,19 @@
+# dc01: workstations' AD accounts and DHCP reservations, made to match the inventory
+# that `lab` passes to ansible/identity.yml (see its header for the inputs). The work is
+# done by this role's module, library/lab_dc_identity.py (it explains why it's a module).
+
+- name: Make AD and DHCP match the inventory ({{ lab_phase }})
+  lab_dc_identity:
+    phase: "{{ lab_phase }}"
+    scope: "{{ lab_scope }}"
+    desired: "{{ lab_desired }}"
+    removed: "{{ lab_removed | default({}) }}"
+    otp: "{{ hostvars['mgmt01'].lab_otp | default({}) }}"
+    passwords: "{{ hostvars['mgmt01'].lab_guest_passwords | default({}) }}"
+    base_dn: "{{ ad_base_dn }}"
+  register: dc_identity
+
+- name: What changed
+  ansible.builtin.debug:
+    var: dc_identity.actions
+  when: dc_identity.actions | length > 0

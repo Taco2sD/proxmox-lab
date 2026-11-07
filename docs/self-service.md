@@ -1,13 +1,23 @@
 # Self-service workstations
 
 A web page where a visitor picks a username and a role, and the lab builds them a
-workstation: AD account, VM, network install, domain join, role, and a terminal in the
-browser when it's ready. Every request goes through git, the same as a hand-made change.
-Lab admins can delete any workstation from the portal, these and the fleet (ws01..04)
-alike, and the deletion removes everything the lab created for it.
+workstation: AD account, a clone of the golden image, domain join, role, and a terminal
+in the browser when it's ready. Lab admins see every workstation, fleet and guest, on
+an admin page, delete any of them with a full clean-up, and see everything the lab did.
 
-Code: `mgmt01/portal/` (web app, worker, pages, nginx and systemd config), deployed with
-`lab portal` (`ansible/portal.yml`).
+Code: `ansible/roles/portal/` (web side, worker, pages) on top of the runner
+(`ansible/roles/runner/`: `lab` and `lablib.py`). Deployed with the servers
+(`ansible/site.yml`).
+
+## Guests are runtime records, not code
+
+The fleet is in git (`inventory/workstations/`). Portal machines are not: each is a
+record on mgmt01 (`/var/lib/lab/guests/<host>.json`) with its own OpenTofu state
+(`/var/lib/lab/tofu/guest-<host>.tfstate`). That's how Microsoft Dev Box and Coder treat
+workstations people request: the definitions are code (here `catalog/` and
+`terraform/modules/workstation`), the instances live in a control plane. It means
+visitors' names never go into a public repository, the release branch only moves for
+real changes, and builds run independently and in parallel.
 
 ## The path of a request
 
@@ -18,29 +28,29 @@ browser ──HTTPS──► VPS: lab.radicallydecent.com
                     ▼
                   pve01 relay (TCP only) ──► mgmt01:8443 (portal + terminal only)
                                                │
-          portal.py (unprivileged) ──► request file ──► worker.py (root)
-                                                          1. inventory/guests/<host>.yml
-                                                          2. git commit + push
-                                                          3. lab apply (one run per batch)
+          portal.py (unprivileged) ──► request file ──► worker.py (root): checks,
+                                                         guest record, operation
+                                                          │ systemd-run lab-op-<id>
                                                           ▼
-                      Ansible: AD user (OU=Guests) + computer account + DHCP reservation
-                               + autoinstall record + one-time join password
-                      OpenTofu: the VM (many in parallel)
-                      PXE + autoinstall, first boot: ansible-pull, domain join, role
-          ◄── progress (the page polls; the worker reads nginx's log)
+                                  lab guest create ws-<user>
+                                   ├─ ansible/identity.yml (this host only): AD computer
+                                   │  account in role-<role>, the owner's AD account and
+                                   │  managedBy, DHCP reservation, one-time join password
+                                   └─ OpenTofu (terraform/guest): clone the golden image
+                                                          │
+                     first boot: lab-firstboot fetches the join password ("joining"),
+                     ansible-pull joins AD and applies the role, then reports ("ready")
+          ◄── progress (the page polls; the worker reads nginx's lab-events log)
           ◄── "Connect": Apache Guacamole opens SSH to the machine, already logged in
 ```
-
-Typical timings: request to VM created about 1 minute, Ubuntu install about 5–6 minutes,
-domain join and role about 1–2 minutes. About eight minutes in all.
 
 ## The page
 
 Modelled on Microsoft Dev Box's developer portal: **New workstation** opens one form
-(username, checked as you type; role), the dialog closes on **Create**, and a tile shows
-the machine's status, the current step and a progress bar. When it's ready, **Connect**
-opens a terminal in a new tab; the **⋯** menu has details (address, username, password),
-a link for another device, and **Delete**.
+(username, checked as you type; role from `catalog/`), the dialog closes on **Create**,
+and a tile shows the machine's status, the current step and a progress bar. When it's
+ready, **Connect** opens a terminal in a new tab; the **⋯** menu has details (address,
+username, password), a link for another device, and **Delete**.
 
 There are no accounts. Each machine has a random secret token; the browser keeps it in
 `localStorage` and sends it in a header (`X-Lab-Token`), never in a URL, so it never
@@ -49,34 +59,27 @@ after a `#`, which browsers don't send to servers.
 
 ## Decisions
 
-**Batching instead of one OpenTofu state per machine.** OpenTofu holds its state lock
-only while it creates or destroys VMs (about 35 seconds); installs and configuration run
-afterwards, outside OpenTofu, in parallel. One run also creates or destroys many VMs at
-once. So the worker takes every waiting request, makes one commit and runs one
-`lab apply`. Requests that arrive during a run go into the next batch.
+**Operations run in their own units.** The worker only dispatches: it turns a request
+into an operation record and starts `lab op run <id>` with `systemd-run`. Restarting
+the worker (every deployment does) never kills a build, and each operation's output is
+in its own log and journal unit. If a unit dies without finishing, the worker marks the
+operation failed.
 
-**One file per guest machine.** Requests live in `inventory/guests/<host>.yml`, not in
-`workstations.yml`. Adding or removing a machine is adding or deleting one file, so
-concurrent requests never conflict in git, the history reads as one commit per batch,
-and the portal never adds to the hand-maintained file. The one edit it makes there is
-deleting a fleet machine's line when an admin deletes that machine (below).
+**Addresses come from the VM ID.** Guests get the first free VM ID in the guest range
+(131–139); its IP and MAC follow (VM 1NN → 10.10.10.NN, BC:24:11:00:00:NN). The portal
+accepts at most four guests at a time (`max_guests`, pve01's memory).
 
-**Addresses come from slots.** Guest machines use slots 1–9: VM ID 13N, IP 10.10.10.3N,
-MAC BC:24:11:00:00:3N. The portal accepts at most four guest machines at a time (pve01's
-memory).
+**Two processes, two privilege levels.** The web side (`portal.py`, user `labportal`,
+sandboxed by systemd) can only reserve a username and drop a request file; it reads
+everything else. The worker and `lab` (root) hold the Proxmox token and the runner key.
+A username is reserved by creating its password file with `O_EXCL`, so two requests
+can't take the same name, and the worker also refuses names that exist in AD.
 
-**Two processes, two privilege levels.** The web side (`portal.py`, user `labportal`)
-can only reserve a username, drop a request file, and read status files. The worker
-(`worker.py`, root) holds the git deploy key and runs `lab`, which holds the Proxmox API
-token. A username is reserved by creating its password file with `O_EXCL`, so two
-requests can't take the same name.
-
-**The visitor gets an AD account.** `<username>` is created in `OU=Guests` (role
-`ad_guest_users`) with RFC2307 attributes and a generated password, which is stored only
-on mgmt01 (never in git). It is deliberately not put in the role's group (artists or
-programmers): that would admit them on every machine of the role. Their machine admits
-only them and `ws-admins`: the workstation reads its own `inventory/guests/<host>.yml`
-from its git checkout and adds the owner to SSSD's `simple_allow_users`.
+**The visitor gets an AD account**, in `OU=Guests`, with RFC2307 attributes and the
+password the portal generated (stored only on mgmt01). It's deliberately in no role
+group (that would admit them to every machine of the role). Their machine's computer
+account has them as `managedBy`; the machine reads that from AD (`roles/ad_join`) and
+admits only its owner and `ws-admins`.
 
 **Terminal: Apache Guacamole 1.6** (Docker on mgmt01), with JSON authentication only: no
 database and no Guacamole accounts. For each **Connect**, the portal builds a login for
@@ -85,63 +88,55 @@ signed, then AES-128-CBC encrypted with a key shared only with Guacamole. Before
 it, the page signs out any Guacamole session the browser still has, because Guacamole
 would otherwise reuse that session and ignore the new login. Workstations accept SSH
 passwords only from mgmt01's address, where Guacamole runs; everything else is key-only.
-On HTTPS, Guacamole can sync the clipboard with the browser.
 
 ## Progress
 
-The worker doesn't poll machines. It reads signals the lab already produces:
+The worker doesn't poll machines; it reads what the lab already produces:
 
 | Step | Signal |
 |---|---|
-| Request received | request file written |
-| Committed to git | commit pushed |
-| Identity ready | OpenTofu starts (Ansible's AD, DHCP and record work runs before it) |
-| VM created | OpenTofu's `Creation complete` line for the machine |
-| Installing Ubuntu | the installer fetches its autoinstall record (nginx access log, by the machine's IP) |
-| Joining the domain | the installer fetches its one-time join password |
-| Ready | the first configuration run finishes and requests `/lab-events/configured` (the last task in `ansible/local.yml`) |
+| Request received | the request file |
+| Identity ready | `lab` finished ansible/identity.yml for this host |
+| VM created | OpenTofu's `Creation complete` line |
+| Joining the domain | the machine fetched its one-time join password (nginx lab-events log, by IP) |
+| Ready | the first configuration run finished and requested `/lab-events/configured` |
 
-The worker remembers its position in nginx's log, so a restart doesn't miss a step.
+The lab-events log is written only by those two nginx locations, as JSON
+(`roles/lab_web`); the worker remembers its position, so a restart doesn't miss a step.
 
-**Failures are reported, not waited out.** If the installer's one-time-password request
-is refused, the build fails at once with that reason (the installer would otherwise sit
-at "An error occurred" forever). A build with no new step for 20 minutes fails as
-stalled. A failed machine that is reinstalled (`lab reimage`) picks up again: its
-install-record fetch restarts the timeline.
+**Failures are reported, not waited out.** If the join-password request is refused,
+the build fails at once with that reason. A build with no new step for 20 minutes
+fails as stalled. `lab reimage ws-<user>` rebuilds a failed one.
 
 ## Admin page and removal
 
-`/admin` lists every workstation in any state: the fleet from `workstations.yml` and the
-guest machines, with each machine's last configuration run (every workstation reports
-one about every 30 minutes). The lab's own machines (pve01, dc01, mgmt01) are not
-workstations and aren't listed. They also can't be deleted by any request: the web side
-and the worker both refuse them by name, and neither OpenTofu nor `lab prune` manages
-anything outside the workstation inventory. Sign-in is a lab admin's own AD
-account: the portal binds to dc01 over LDAPS (Let's Encrypt certificate for
-`dc01.lab.radicallydecent.com`, a name that exists only inside the lab) and admits
-members of `ws-admins`, nested groups included. The password is never stored; a signed,
-HttpOnly, SameSite=Strict cookie carries the session for 8 hours. Sign-in attempts are
-rate-limited by nginx, and admin actions need a header only the page's own code sends.
+`/admin` lists every workstation in any state: the fleet (with what Proxmox reports)
+and the guests, each with its last configuration run. The lab's own machines (pve01,
+dc01, mgmt01) aren't workstations and aren't listed; the web side and the worker also
+refuse them by name, and nothing that deletes knows about anything outside the
+workstation inventory. Sign-in is a lab admin's own AD account: the portal binds to
+dc01 over LDAPS and admits members of `ws-admins`, nested groups included. The password
+is never stored; a signed, HttpOnly, SameSite=Strict cookie carries the session for 8
+hours. Sign-in attempts are rate-limited by nginx, and admin actions need a header only
+the page's own code sends.
 
-An admin ticks one or more machines and presses **Delete** under the table; a warning
-lists every machine about to be destroyed and says it can't be undone. All of them go in
-one batch: one commit, one `lab apply`, one `lab prune`. An owner deletes only their own
-machine, from its tile. Either way the path is the build in reverse, and the admin page
-shows each machine's step live:
+An admin ticks machines and presses **Delete** under the table; a warning lists every
+one and says it can't be undone. Then each row shows its steps:
 
-1. the request is queued, and the machine leaves the inventory (its file in
-   `inventory/guests/`, or a fleet machine's line in `workstations.yml`, checked to
-   parse to the same inventory minus that machine) in a commit that names who deleted it
-   ("remove ws03 (by admin jrhodes)"),
-2. `lab apply`: OpenTofu destroys the VM and its disk,
-3. `lab prune`: the owner's AD user and the computer account, the DHCP reservation, the
-   DHCP lease (released with `dhcp_release`, so the DHCP hook deletes the A and PTR
-   records at once instead of when the lease would have expired), and the autoinstall
-   record, MAC link and one-time-password rule on mgmt01,
-4. the portal's own status file and stored password.
+- **guest:** `lab guest delete` destroys the VM (OpenTofu), then ansible/identity.yml
+  removes the computer account, the owner's account, the DHCP reservation and lease
+  (releasing the lease makes the DHCP hook delete the DNS records at once) and the join
+  password, then the record, the password and the state file.
+- **fleet:** the worker commits the removal of `inventory/workstations/<host>.yml` to
+  `main` ("Remove ws03 (admin jrhodes, from the admin page)") and approves the destroy.
+  CI checks the commit and moves `stable`; the reconciler destroys the VM and cleans up
+  the same way. That takes a few minutes, shown as "Waiting for the checks".
 
-If the VM can't be destroyed, its accounts and records are left alone and the machine
-shows as failed; deleting it again runs the whole removal again, skipping what's done.
+If a fleet machine disappears from the inventory any other way (a commit), the
+reconciler doesn't destroy it until an admin presses **Approve** on this page.
+
+The **Activity** list shows every operation: builds, deletes, image builds, reconciles,
+who started them and how they ended.
 
 ## Exposure
 
@@ -149,5 +144,5 @@ shows as failed; deleting it again runs the whole removal again, skipping what's
 the Proxmox UI. Both sit behind the VPS's sign-in gate (one 12-hour session for both),
 and both hops behind it are TLS with verified certificates. The tunnel's firewall on
 pve01 admits only the Proxmox UI and the portal relay. mgmt01's internet-facing port
-(8443) serves the portal and the terminal only; autoinstall records, one-time passwords
-and the ready signal exist only on its lab-facing port (443). See [vps/](../vps/README.md).
+(8443) serves the portal and the terminal only; install records, join passwords and the
+events endpoint exist only on its lab-facing port (443). See [vps/](../vps/README.md).

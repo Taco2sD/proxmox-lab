@@ -1,0 +1,4 @@
+# Check the whole nginx configuration first: a broken one would take the portal down.
+- name: Reload nginx
+  ansible.builtin.shell: nginx -t && systemctl reload nginx
+  changed_when: true

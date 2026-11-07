@@ -1,0 +1,11 @@
+# /etc/systemd/system/lab-reconcile.timer on mgmt01 (roles/runner): run the reconciler
+# every minute. A run that's still going makes the next one exit at once (lock).
+[Unit]
+Description=Apply the lab's release branch every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+
+[Install]
+WantedBy=timers.target

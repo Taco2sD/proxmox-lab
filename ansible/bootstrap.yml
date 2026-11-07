@@ -1,0 +1,62 @@
+# One-time setup of the automation account on the servers mgmt01 manages
+# (ansible/servers.yml). Run from mgmt01 once per server, as an account that already
+# has sudo there; afterwards everything runs as svc-runner:
+#
+#   ansible-playbook -i ansible/servers.yml ansible/bootstrap.yml -l dc01 -e ansible_user=jrhodes
+#   ansible-playbook -i ansible/servers.yml ansible/bootstrap.yml -l pve01 -e ansible_user=root -e ansible_become=false
+#
+# (Proxmox doesn't ship sudo; this installs it.)
+#
+# svc-runner: key-only (no password at all), the runner key of mgmt01's root, accepted
+# only from mgmt01's address, sudo without a password. Ansible's become needs full sudo
+# (it runs its own Python), so the protection is who can log in and from where, not a
+# narrow sudo rule.
+
+- name: Automation account (svc-runner)
+  hosts: dc01:pve01
+  tasks:
+    - name: The runner's public key (mgmt01:/root/.ssh/id_ed25519.pub)
+      ansible.builtin.slurp:
+        src: /root/.ssh/id_ed25519.pub
+      delegate_to: mgmt01
+      register: runner_key
+
+    - name: Install sudo (not on Proxmox by default)
+      ansible.builtin.apt:
+        name: sudo
+        state: present
+
+    - name: Account, without a usable password
+      ansible.builtin.user:
+        name: svc-runner
+        comment: Lab automation (mgmt01)
+        shell: /bin/bash
+        password: "!"
+        system: false
+
+    - name: SSH key, from mgmt01 only
+      ansible.builtin.copy:
+        dest: /home/svc-runner/.ssh/authorized_keys
+        content: |
+          # Managed by ansible/bootstrap.yml: mgmt01's runner key, from mgmt01 only
+          from="{{ mgmt01_ip }}",no-agent-forwarding,no-X11-forwarding {{ runner_key.content | b64decode | trim }}
+        owner: svc-runner
+        group: svc-runner
+        mode: "0600"
+
+    - name: .ssh is private
+      ansible.builtin.file:
+        path: /home/svc-runner/.ssh
+        state: directory
+        owner: svc-runner
+        group: svc-runner
+        mode: "0700"
+
+    - name: Passwordless sudo
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/svc-runner
+        content: |
+          # Managed by ansible/bootstrap.yml: lab automation from mgmt01
+          svc-runner ALL=(ALL:ALL) NOPASSWD: ALL
+        mode: "0440"
+        validate: visudo -cf %s

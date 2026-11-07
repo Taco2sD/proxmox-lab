@@ -1,0 +1,31 @@
+# pve01: the portal's path in from the internet, and the firewall on the tunnel it uses.
+# Part of ansible/site.yml.
+#
+#   VPS --WireGuard (pve01 dials out)--> 10.99.0.2:8443 --relay--> mgmt01:8443
+#
+# The tunnel itself (/etc/wireguard/lab.conf: keys, peer) holds a private key and is not
+# in the repo; it loads files/lab.nft when it comes up (PostUp). vps/README.md has the
+# VPS side.
+
+- name: Relay socket and service (systemd-socket-proxyd)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-portal-relay.socket, lab-portal-relay.service]
+  notify: Restart relay
+
+- name: Relay listening
+  ansible.builtin.systemd_service:
+    name: lab-portal-relay.socket
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Tunnel firewall (only the Proxmox UI and the relay; no forwarding into the lab)
+  ansible.builtin.copy:
+    src: lab.nft
+    dest: /etc/wireguard/lab.nft
+    mode: "0600"
+    validate: nft -c -f %s
+  notify: Reload tunnel firewall

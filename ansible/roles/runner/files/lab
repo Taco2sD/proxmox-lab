@@ -1,0 +1,615 @@
+#!/usr/bin/env python3
+"""lab: the one command for changing the lab. Runs on mgmt01 as root.
+
+Deployed to mgmt01:/usr/local/bin/lab by roles/runner, next to lablib.py (the shared
+library: paths, settings, inventory rules, operations). docs/operations.md explains
+each command with examples.
+
+  lab status                show what exists vs. what should (read-only)
+  lab doctor                check certificates, services, secrets, tunnel (read-only)
+  lab plan                  show what the fleet's OpenTofu run would change (read-only)
+  lab apply                 make the fleet match inventory/workstations/ (asks first)
+  lab reimage HOST...       rebuild workstations from the current image (keeps AD account and role)
+  lab image build           build a new golden image over PXE, then switch to it
+  lab deploy                configure the servers themselves (ansible/site.yml)
+  lab reconcile             what the timer runs every minute: follow the release branch,
+                            deploy, apply (destroys only with an admin's approval)
+  lab guest create HOST     build / remove one portal machine from its record on mgmt01
+  lab guest delete HOST     (normally started by the portal's worker, not by hand)
+  lab op run ID             run a queued operation (how the worker starts them)
+
+Two tiers (docs/self-service.md): fleet machines are files in git and change through
+`lab apply` / `lab reconcile`; guest machines are runtime records, each with its own
+OpenTofu state, changed one at a time by `lab guest`. Both use the same OpenTofu module
+(terraform/modules/workstation) and the same identity playbook (ansible/identity.yml).
+
+Every mutating command is an "operation": a record in /var/lib/lab/ops (the admin
+page's Activity), a log in /var/log/lab/<id>.log, and lines in the audit log.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, "/usr/local/lib/lab")
+import lablib as L  # noqa: E402  (after the path above)
+
+REPO = L.REPO
+PLUGIN_CACHE = Path("/var/cache/lab/tofu-plugins")
+# A clean clone of main that only the portal's admin deletes commit from (fleet changes
+# made from the admin page). The deployment checkout (REPO) stays at the release branch.
+MAIN_CLONE = L.STATE / "repo-main"
+DEPLOY_KEY = "/root/.ssh/github_deploy"   # write access to this one repository only
+GIT_ID = ["-c", "user.name=Lab portal", "-c", "user.email=lab-portal@mgmt01.ad.lab.internal"]
+FULL_RUN_EVERY = 30 * 60   # the reconciler re-checks for drift this often even without commits
+
+
+class Fail(Exception):
+    """An expected failure: printed and recorded on the operation, no traceback."""
+
+
+# ---------------------------------------------------------------- output and operations
+class Op:
+    """The running operation: its record, its log file, and where output goes."""
+
+    def __init__(self, record, echo):
+        self.id, self.record, self.echo = record["id"], record, echo
+        L.LOGS.mkdir(parents=True, exist_ok=True)
+        self.log = open(record["log"], "a", encoding="utf-8")  # noqa: SIM115 (open for the op's lifetime)
+
+    def say(self, msg):
+        line = f"{time.strftime('%H:%M:%S')} {msg}\n"
+        self.log.write(line)
+        self.log.flush()
+        if self.echo:
+            print(msg, flush=True)
+
+    def step(self, name, **fields):
+        L.op_update(self.id, step=name, **fields)
+        self.say(f"-- {name}")
+
+    def run(self, cmd, on_line=None, **kw):
+        self.say("$ " + " ".join(str(c) for c in cmd))
+        return L.run([str(c) for c in cmd], self.log, on_line, echo=self.echo, **kw)
+
+
+def operation(kind, actor, hosts=(), echo=True, record=None, **params):
+    """Start (or, for `lab op run`, resume) an operation record and return an Op."""
+    record = record or L.new_op(kind, actor, hosts, **params)
+    L.op_update(record["id"], state="running")
+    return Op(record, echo)
+
+
+def finish(op, error=None, state=None):
+    L.op_update(op.id, state=state or ("failed" if error else "done"), error=error)
+    if error:
+        op.say(f"FAILED: {error}")
+
+
+def actor():
+    """Who is running this from a terminal (for the audit log)."""
+    return "admin " + (os.environ.get("SUDO_USER") or os.environ.get("USER") or "root") + " (lab CLI)"
+
+
+def confirm(word):
+    if not sys.stdin.isatty():
+        raise Fail("needs confirmation; run it from a terminal")
+    if input(f"Type '{word}' to continue: ").strip() != word:
+        raise Fail("not confirmed, nothing changed")
+
+
+# ---------------------------------------------------------------- tools: Ansible, OpenTofu
+def ansible(op, playbook, extra=None):
+    """ansible-playbook from the deployment checkout, against ansible/servers.yml.
+    Extra vars go in a root-only temporary file: they can include passwords."""
+    cmd = ["ansible-playbook", "-i", "ansible/servers.yml", f"ansible/{playbook}"]
+    env = {**os.environ, "ANSIBLE_CONFIG": str(REPO / "ansible.cfg"), "ANSIBLE_FORCE_COLOR": "0"}
+    with tempfile.NamedTemporaryFile("w", suffix=".json", dir="/run/lab") as f:
+        if extra is not None:
+            json.dump(extra, f)
+            f.flush()
+            cmd += ["-e", "@" + f.name]
+        rc, tail = op.run(cmd, cwd=REPO, env=env)
+    if rc != 0:
+        raise Fail(f"ansible/{playbook} failed (see {op.record['log']})")
+
+
+def identity(op, phase, scope="all", otp=(), removed=None):
+    """ansible/identity.yml: AD accounts, DHCP reservations and one-time join passwords
+    for workstations, made to match the inventory (phase present: before VMs are
+    created; cleanup: after VMs are destroyed). Only hosts in `scope` are touched."""
+    ansible(op, "identity.yml", {
+        "lab_phase": phase, "lab_scope": scope, "lab_desired": L.desired(),
+        "lab_otp_hosts": list(otp), "lab_removed": removed or {},
+    })
+
+
+class Tofu:
+    """One OpenTofu root (terraform/fleet or terraform/guest) with one state file.
+    Each guest has its own state, like a Coder workspace: guests never wait for each
+    other or for the fleet, and a broken guest can't block anything else."""
+
+    def __init__(self, op, root, name):
+        self.op, self.dir = op, REPO / "terraform" / root
+        self.state = L.TOFU_STATE / f"{name}.tfstate"
+        data = L.TOFU_STATE / f"{name}.d"           # TF_DATA_DIR: backend and modules
+        PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
+        self.env = {**os.environ, **L.read_env(L.TOFU_ENV), "TF_DATA_DIR": str(data),
+                    "TF_PLUGIN_CACHE_DIR": str(PLUGIN_CACHE), "TF_IN_AUTOMATION": "1"}
+
+    def tf(self, *args, on_line=None, check=True):
+        rc, tail = self.op.run(["tofu", f"-chdir={self.dir}", *args], on_line=on_line, env=self.env)
+        if check and rc != 0:
+            raise Fail(f"tofu {args[0]} failed: {tail.splitlines()[-1] if tail else ''}")
+        return rc
+
+    def init(self):
+        self.tf("init", "-input=false", "-reconfigure", f"-backend-config=path={self.state}")
+
+    def show_json(self, planfile):
+        out = subprocess.run(["tofu", f"-chdir={self.dir}", "show", "-json", planfile],
+                             env=self.env, capture_output=True, text=True, check=True).stdout
+        return json.loads(out)
+
+
+def tf_vars(extra):
+    """Variables every OpenTofu run needs, written to a root-only .tfvars.json."""
+    image = L.read_json(L.IMAGE)
+    if not image:
+        raise Fail("there is no golden image yet: run `lab image build`")
+    values = {"image_vmid": image["vmid"],
+              "ssh_keys": [Path("/root/pvelab.pub").read_text().strip()], **extra}
+    path = L.LOCKS / f"{extra.get('host', 'fleet')}.tfvars.json"   # one per root+host: no leftovers
+    L.LOCKS.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(values))
+    return str(path)
+
+
+def progress(on_vm):
+    """An on_line callback for tofu apply/destroy that reports VM-level progress."""
+    def on_line(line):
+        m = L.TOFU_LINE.search(line)
+        if m:
+            on_vm(m.group("host"), m.group("what"))
+    return on_line
+
+
+def check_inventory():
+    problems = L.validate(L.fleet(), L.catalog(), L.settings())
+    if problems:
+        raise Fail("the inventory has problems:\n  " + "\n  ".join(problems))
+
+
+# ---------------------------------------------------------------- the fleet
+def fleet_apply(op, interactive, replace=()):
+    """Make the fleet match inventory/workstations/: identity first (so new machines can
+    join), then OpenTofu, then remove what's left of machines that are gone.
+    Returns True if it finished, False if it's waiting for an admin's approval."""
+    check_inventory()
+    tofu = Tofu(op, "fleet", "fleet")
+    tofu.init()
+    plan = "/run/lab/fleet.tfplan"
+    args = ["plan", "-input=false", f"-var-file={tf_vars({})}", f"-out={plan}"]
+    args += [f'-replace=module.workstation["{h}"].proxmox_virtual_environment_vm.this' for h in replace]
+    tofu.tf(*args)
+    changes = L.plan_changes(tofu.show_json(plan))
+    if not changes:
+        op.say("The fleet matches the inventory.")
+        identity(op, "cleanup")       # leftovers of machines removed outside OpenTofu
+        return True
+    for host, what in sorted(changes.items()):
+        op.say(f"  {what:8} {host}")
+    destroys = sorted(h for h, what in changes.items() if what == "delete")
+    approved = L.approvals()
+    if interactive:
+        confirm("destroy " + " ".join(destroys) if destroys else "apply")
+    elif any(h not in approved for h in destroys):
+        # Auto-apply builds and updates by itself, but destroying a machine needs an
+        # admin's yes (the admin page shows this and has an Approve button).
+        waiting = [h for h in destroys if h not in approved]
+        L.write_json(L.RECONCILE, {**(L.read_json(L.RECONCILE) or {}), "pending_destroys": waiting})
+        op.say("Waiting for an admin to approve destroying: " + ", ".join(waiting))
+        return False
+
+    # Fleet deletes started from the admin page have their own operation; report there too.
+    linked = {h: a["op"] for h, a in approved.items() if a.get("op") and h in destroys}
+
+    def on_vm(host, what):
+        if host in linked:
+            L.op_update(linked[host], step="destroying" if what == "Destroying" else "destroyed")
+
+    new = [h for h, what in changes.items() if what in ("create", "replace")]
+    identity(op, "present", otp=new)        # new and rebuilt machines get a join password
+    tofu.tf("apply", "-input=false", plan, on_line=progress(on_vm))
+    for op_id in set(linked.values()):
+        L.op_update(op_id, step="cleaning")
+    identity(op, "cleanup")
+    for h in destroys:
+        (L.APPROVALS / f"{h}.json").unlink(missing_ok=True)
+    for op_id in set(linked.values()):
+        L.op_update(op_id, state="done")
+    state = L.read_json(L.RECONCILE) or {}
+    state.pop("pending_destroys", None)
+    L.write_json(L.RECONCILE, state)
+    return True
+
+
+# ---------------------------------------------------------------- guest machines
+def guest_create(op, host, replace=False):
+    """Build one portal machine from its record (written by worker.py); with replace,
+    rebuild its VM from the current image (`lab reimage`)."""
+    r = L.read_json(L.guest_path(host))
+    if not r:
+        raise Fail(f"no guest record for {host}")
+    problems = L.validate({host: L.guest_spec(r)}, L.catalog(), L.settings())
+    if problems:
+        raise Fail("; ".join(problems))
+    # Shared image lock: `lab image build` may not delete the template we clone from.
+    with L.lock(f"host-{host}"), L.lock("image", shared=True):
+        identity(op, "present", scope=[host], otp=[host])
+        L.guest_phase(host, "identity")
+        op.step("identity")
+        tofu = Tofu(op, "guest", f"guest-{host}")
+        tofu.init()
+        varfile = tf_vars({"host": host, "vmid": r["vmid"], "mac": r["mac"], "role": r["role"],
+                           "owner": r["owner"]})
+
+        def on_vm(_, what):
+            if what == "Creation complete":
+                L.guest_phase(host, "created")
+                op.step("created")
+        rebuild = ["-replace=module.workstation.proxmox_virtual_environment_vm.this"] if replace else []
+        tofu.tf("apply", "-input=false", "-auto-approve", f"-var-file={varfile}", *rebuild, on_line=progress(on_vm))
+    # From here the machine reports its own progress (nginx lab-events log -> worker.py).
+
+
+def guest_delete(op, host):
+    """Remove one portal machine completely: VM, identity, then its records."""
+    r = L.read_json(L.guest_path(host))
+    if not r:
+        raise Fail(f"no guest record for {host}")
+    with L.lock(f"host-{host}"):
+        L.update_json(L.guest_path(host), lambda x: x.update(state="removing", error=None))
+        tofu = Tofu(op, "guest", f"guest-{host}")
+        if tofu.state.exists():
+            tofu.init()
+            varfile = tf_vars({"host": host, "vmid": r["vmid"], "mac": r["mac"], "role": r["role"],
+                               "owner": r["owner"]})
+
+            def on_vm(_, what):
+                step = "destroying" if what == "Destroying" else "destroyed"
+                L.update_json(L.guest_path(host), lambda x: x.setdefault("removal", {}).setdefault(step, time.time()))
+                op.step(step)
+            tofu.tf("destroy", "-input=false", "-auto-approve", f"-var-file={varfile}", on_line=progress(on_vm))
+        L.update_json(L.guest_path(host), lambda x: x.setdefault("removal", {}).setdefault("cleaning", time.time()))
+        op.step("cleaning")
+        identity(op, "cleanup", scope=[host], removed={host: L.guest_spec(r)})
+        for p in (tofu.state, Path(f"{tofu.state}.backup"), L.guest_path(host), L.PASSWORDS / r["owner"]):
+            p.unlink(missing_ok=True)
+        subprocess.run(["rm", "-rf", str(L.TOFU_STATE / f"guest-{host}.d")], check=False)
+    op.say(f"{host} removed")
+
+
+# ---------------------------------------------------------------- fleet deletes from the admin page
+def fleet_delete(op, hosts):
+    """An admin deleted fleet machines on the admin page: commit their removal to main
+    (that's the desired state changing), and approve the destroys. CI checks the commit
+    and moves the release branch; the reconciler then destroys and cleans up, reporting
+    its progress on this operation."""
+    MAIN_CLONE.parent.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "GIT_SSH_COMMAND": f"ssh -i {DEPLOY_KEY} -o IdentitiesOnly=yes"}
+    url = L.settings()["repo_push_url"]
+
+    def git(*args, check=True):
+        rc, tail = op.run(["git", "-C", MAIN_CLONE, *GIT_ID, *args], env=env)
+        if check and rc != 0:
+            raise Fail(f"git {args[0]} failed: {tail}")
+        return rc
+    if not (MAIN_CLONE / ".git").exists():
+        rc, tail = op.run(["git", "clone", "-q", url, MAIN_CLONE], env=env)
+        if rc != 0:
+            raise Fail(f"git clone failed: {tail}")
+    git("fetch", "-q", "origin")
+    git("reset", "-q", "--hard", "origin/main")
+    present = [h for h in hosts if (MAIN_CLONE / "inventory" / "workstations" / f"{h}.yml").exists()]
+    for h in present:
+        git("rm", "-q", f"inventory/workstations/{h}.yml")
+    if present:
+        who = op.record["actor"]
+        git("commit", "-q", "-m", f"Remove {', '.join(present)} ({who}, from the admin page)")
+        git("push", "-q", "origin", "HEAD:main")
+    commit = subprocess.run(["git", "-C", MAIN_CLONE, "rev-parse", "HEAD"], capture_output=True,
+                            text=True).stdout.strip()
+    for h in hosts:
+        L.approve(h, op.record["actor"], op.id)
+    op.step("committed", params={**op.record["params"], "commit": commit})
+    op.say("Waiting for the checks to pass and the reconciler to apply it.")
+
+
+# ---------------------------------------------------------------- the golden image
+def image_build(op):
+    """Install a fresh Ubuntu over PXE into a builder VM (roles/pxe: its install record
+    and first-boot generalisation), convert it to a template, switch to it, and delete
+    the previous one. Clones are full copies, so old templates can go at once."""
+    cfg, px = L.settings(), L.Proxmox()
+    b = cfg["image_builder"]
+    current = (L.read_json(L.IMAGE) or {}).get("vmid")
+    target = next(v for v in cfg["image_vmids"] if v != current)
+    node = f"/nodes/{px.node}/qemu"
+    vms = px.vms()
+    for vmid in (b["vmid"], target):            # leftovers of an earlier, failed build
+        if vmid in vms:
+            if "lab-image" not in vms[vmid]["tags"]:
+                raise Fail(f"VM {vmid} exists and isn't a lab image; refusing to touch it")
+            op.say(f"removing leftover VM {vmid}")
+            if vms[vmid]["status"] == "running":
+                px.wait(px.call("POST", f"{node}/{vmid}/status/stop"))
+            px.wait(px.call("DELETE", f"{node}/{vmid}?purge=1&destroy-unreferenced-disks=1"))
+    ds, disk = cfg["pve_datastore"], max(c["size"]["disk_gb"] for c in L.catalog().values())
+    # Same hardware as a workstation (terraform/modules/workstation), plus the RAM the
+    # network installer needs: it holds the whole ISO in memory.
+    px.wait(px.call("POST", node, {
+        "vmid": target, "name": b["name"], "tags": "lab-image", "ostype": "l26",
+        "machine": "q35", "bios": "ovmf", "cores": 2, "memory": 5120,
+        "efidisk0": f"{ds}:1,efitype=4m,pre-enrolled-keys=1", "scsihw": "virtio-scsi-single",
+        "scsi0": f"{ds}:{disk},discard=on,ssd=1,iothread=1",
+        "net0": f"virtio={b['mac']},bridge={cfg['pve_bridge']}", "rng0": "source=/dev/urandom",
+        "boot": "order=scsi0;net0", "agent": "enabled=1"}))
+    op.step("created")
+    px.wait(px.call("POST", f"{node}/{target}/status/start"))
+    op.step("installing")
+    op.say("PXE install, first boot, generalise, power off: about 10 minutes")
+    started = time.time()
+    while px.call("GET", f"{node}/{target}/status/current")["status"] != "stopped":
+        if time.time() - started > 40 * 60:
+            raise Fail(f"the image install didn't finish in 40 minutes (VM {target} left running)")
+        time.sleep(15)
+    op.step("installed")
+    # Ready to be cloned: a cloud-init drive for each clone's hostname, network and key;
+    # no network boot (clones boot their disk); and no package upgrade on first boot,
+    # which would add minutes to every build. (ciupgrade is root-only in the API, so it
+    # goes through svc-runner on pve01.)
+    px.wait(px.call("POST", f"{node}/{target}/config", {
+        "ide2": f"{ds}:cloudinit", "boot": "order=scsi0", "memory": 2048, "name": f"lab-image-{time.strftime('%Y%m%d')}"}))
+    rc, tail = op.run(["ssh", "-o", "BatchMode=yes", f"svc-runner@{cfg['pve01_ip']}",
+                       f"sudo qm set {target} --ciupgrade 0"])
+    if rc != 0:
+        raise Fail(f"couldn't turn off the first-boot upgrade: {tail}")
+    px.wait(px.call("POST", f"{node}/{target}/template"))
+    op.step("template")
+    with L.lock("image"):          # exclusive: no guest is cloning from the old one now
+        L.write_json(L.IMAGE, {"vmid": target, "built": time.time(), "op": op.id})
+        if current and current in px.vms():
+            px.wait(px.call("DELETE", f"{node}/{current}?purge=1&destroy-unreferenced-disks=1"))
+    op.say(f"golden image is now VM {target}")
+
+
+# ---------------------------------------------------------------- reconcile
+def git_deploy(*args):
+    return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True)
+
+
+def reconcile():
+    """Follow the release branch (CI moves it only to commits that passed): when it
+    moves, deploy the servers and apply the fleet. Every FULL_RUN_EVERY seconds apply
+    anyway, which repairs drift. Runs from lab-reconcile.timer every minute."""
+    with L.lock("fleet", wait=False) as got:
+        if not got:
+            return 0                      # a run or a `lab apply` is still going
+        cfg = L.settings()
+        branch = cfg["release_branch"]
+        if git_deploy("fetch", "-q", "origin").returncode != 0:
+            return 1
+        target = git_deploy("rev-parse", f"origin/{branch}").stdout.strip()
+        state = L.read_json(L.RECONCILE) or {}
+        moved = target != state.get("commit")
+        due = time.time() - state.get("full_run", 0) > FULL_RUN_EVERY
+        newly_approved = set(L.approvals()) & set(state.get("pending_destroys", []))
+        fleet_ops = [o for o in L.ops(100) if o["kind"] == "fleet-delete" and o["state"] in L.ACTIVE]
+        if not (moved or due or newly_approved or fleet_ops):
+            return 0
+        if moved and target == state.get("failed_commit") and not due:
+            return 0                      # this commit failed already; retry on the full run
+        # Fleet deletes from the admin page: mark them released once their commit is in.
+        for o in fleet_ops:
+            commit = o["params"].get("commit")
+            if commit and git_deploy("merge-base", "--is-ancestor", commit, f"origin/{branch}").returncode == 0:
+                L.op_update(o["id"], step="released")
+        git_deploy("reset", "-q", "--hard", f"origin/{branch}")
+        op = operation("reconcile", "reconciler", echo=False, commit=target[:12])
+        try:
+            if moved:
+                op.say(f"release branch moved to {target[:12]}: deploying the servers")
+                ansible(op, "site.yml")
+            finished = fleet_apply(op, interactive=False)
+            state.update(commit=target, full_run=time.time(), failed_commit=None)
+            L.write_json(L.RECONCILE, {**(L.read_json(L.RECONCILE) or {}), **state})
+            finish(op, state="done" if finished else "waiting")
+        except Exception as e:                       # noqa: BLE001  (recorded, not raised)
+            L.write_json(L.RECONCILE, {**(L.read_json(L.RECONCILE) or {}), "failed_commit": target,
+                                       "full_run": time.time()})
+            finish(op, error=str(e))
+            return 1
+        # Quiet runs that changed nothing don't need to clutter the Activity list.
+        if not moved and "The fleet matches" in Path(op.record["log"]).read_text():
+            (L.OPS / f"{op.id}.json").unlink(missing_ok=True)
+        return 0
+
+
+# ---------------------------------------------------------------- status and doctor
+def status(as_json):
+    """What should exist (inventory) vs. what Proxmox has."""
+    px, want = L.Proxmox(), L.desired()
+    vms = px.vms()
+    rows = []
+    for host, spec in sorted(want.items()):
+        vm = vms.get(spec["vmid"])
+        state = "missing" if not vm else vm["status"] if vm["name"] == host else f"vmid used by {vm['name']}"
+        rows.append({"host": host, "kind": spec["kind"], "vmid": spec["vmid"], "ip": spec["ip"],
+                     "role": spec["role"], "owner": spec.get("owner"), "vm": state})
+    wanted = {s["vmid"] for s in want.values()}
+    for vmid, vm in sorted(vms.items()):
+        if "lab-workstation" in vm["tags"] and vmid not in wanted:
+            rows.append({"host": vm["name"], "kind": "orphan", "vmid": vmid, "vm": vm["status"]})
+    image = L.read_json(L.IMAGE) or {}
+    guest_problems = L.validate({h: s for h, s in want.items() if s["kind"] == "guest"}, L.catalog(), L.settings())
+    if as_json:
+        print(json.dumps({"machines": rows, "image": image, "problems": guest_problems}, indent=1))
+        return 0
+    print(f"{'HOST':12} {'KIND':7} {'VMID':5} {'IP':13} {'ROLE':11} {'OWNER':9} VM")
+    for r in rows:
+        print(f"{r['host']:12} {r['kind']:7} {r['vmid']:<5} {r.get('ip') or '':13} "
+              f"{r.get('role') or '':11} {r.get('owner') or '':9} {r['vm']}")
+    print(f"\ngolden image: VM {image.get('vmid', 'none')}"
+          + (f", built {time.strftime('%Y-%m-%d %H:%M', time.localtime(image['built']))}" if image else ""))
+    for p in guest_problems:
+        print("problem:", p)
+    return 1 if guest_problems or any(r["vm"] != "running" for r in rows) else 0
+
+
+def doctor():
+    """Health checks a maintainer would otherwise do by hand. Exit 1 if any fails."""
+    cfg, bad = L.settings(), 0
+
+    def check(name, ok, detail=""):
+        nonlocal bad
+        bad += not ok
+        print(f"{'ok  ' if ok else 'FAIL'} {name}" + (f": {detail}" if detail else ""))
+
+    def sh(cmd):
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        return r.returncode == 0, (r.stdout + r.stderr).strip()
+
+    def cert_days(cmd):
+        ok, out = sh(cmd + " | openssl x509 -noout -enddate")
+        if not ok or "notAfter=" not in out:
+            return None
+        end = time.mktime(time.strptime(out.split("=", 1)[1].replace(" GMT", ""), "%b %d %H:%M:%S %Y"))
+        return int((end - time.time()) / 86400)
+
+    for f in (L.TOFU_ENV, Path("/root/pvelab.pub"), Path("/root/provision/labadmin.hash"),
+              Path(DEPLOY_KEY), Path("/etc/lab-portal/acme-dns/lab.json"),
+              Path("/etc/lab-portal/session-key"), Path("/etc/lab-portal/json-secret-key")):
+        check(f"secret {f}", f.exists())
+    problems = L.validate(L.fleet(), L.catalog(), cfg)
+    check("inventory", not problems, "; ".join(problems))
+    image = L.read_json(L.IMAGE)
+    check("golden image", bool(image), f"VM {image['vmid']}" if image else "run `lab image build`")
+    for unit in ("nginx", "lab-portal", "lab-portal-worker", "lab-reconcile.timer", "docker", "tftpd-hpa"):
+        ok, out = sh(f"systemctl is-active {unit}")
+        check(f"service {unit}", ok, out)
+    for name, cmd in (
+        (cfg["lab_fqdn"], f"openssl x509 -in /etc/letsencrypt/live/{cfg['lab_fqdn']}/cert.pem"),
+        (cfg["ldaps_fqdn"],
+         f"echo | openssl s_client -connect {cfg['ldaps_fqdn']}:636 -servername {cfg['ldaps_fqdn']} 2>/dev/null"),
+        (cfg["pve_fqdn"], f"echo | openssl s_client -connect {cfg['pve01_ip']}:8006 -servername {cfg['pve_fqdn']} 2>/dev/null"),
+    ):
+        days = cert_days(cmd)
+        check(f"certificate {name}", days is not None and days > 14,
+              "unreadable" if days is None else f"{days} days left")
+    ok, out = sh("curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8085/guacamole/")
+    check("guacamole", ok, out)
+    for host, units in (("dc01_ip", "samba-ad-dc dnsmasq"), ("pve01_ip", "wg-quick@lab lab-portal-relay.socket")):
+        ok, out = sh(f"ssh -o BatchMode=yes -o ConnectTimeout=5 svc-runner@{cfg[host]} systemctl is-active {units}")
+        check(f"{host.split('_')[0]}: {units}", ok, out.replace("\n", " "))
+    state = L.read_json(L.RECONCILE) or {}
+    age = time.time() - state.get("full_run", 0)
+    check("reconciler", age < 2 * FULL_RUN_EVERY, f"last full run {int(age // 60)} min ago")
+    if state.get("pending_destroys"):
+        check("pending destroys", False, "awaiting approval: " + ", ".join(state["pending_destroys"]))
+    return 1 if bad else 0
+
+
+# ---------------------------------------------------------------- command line
+def main():
+    p = argparse.ArgumentParser(prog="lab", description=__doc__.split("\n\n")[0],
+                                formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("status").add_argument("--json", action="store_true")
+    for name in ("doctor", "plan", "apply", "deploy", "reconcile"):
+        sub.add_parser(name)
+    sub.add_parser("reimage").add_argument("hosts", nargs="+")
+    sub.add_parser("image").add_argument("action", choices=["build"])
+    g = sub.add_parser("guest")
+    g.add_argument("action", choices=["create", "delete"])
+    g.add_argument("host")
+    o = sub.add_parser("op")
+    o.add_argument("action", choices=["run"])
+    o.add_argument("id")
+    a = p.parse_args()
+
+    if a.cmd == "status":
+        return status(a.json)
+    if a.cmd == "doctor":
+        return doctor()
+    if a.cmd == "reconcile":
+        return reconcile()
+    if a.cmd == "plan":
+        op = Op({"id": "plan", "log": "/dev/null"}, echo=True)
+        check_inventory()
+        t = Tofu(op, "fleet", "fleet")
+        t.init()
+        t.tf("plan", "-input=false", f"-var-file={tf_vars({})}")
+        return 0
+
+    # Everything below changes something: it runs as an operation.
+    if a.cmd == "op":
+        record = L.load_op(a.id)
+        if not record or record["state"] != "queued":
+            print(f"lab: no queued operation {a.id}", file=sys.stderr)
+            return 1
+        op = operation(record["kind"], record["actor"], echo=False, record=record)
+        kind, hosts = record["kind"], record["hosts"]
+    else:
+        kind = {"apply": "fleet-apply", "deploy": "deploy", "reimage": "reimage", "image": "image-build",
+                "guest": f"guest-{getattr(a, 'action', '')}"}[a.cmd]
+        hosts = getattr(a, "hosts", None) or ([a.host] if a.cmd == "guest" else [])
+        op = operation(kind, actor(), hosts, echo=True)
+    try:
+        if kind == "guest-create":
+            guest_create(op, hosts[0])
+        elif kind == "guest-delete":
+            guest_delete(op, hosts[0])
+        elif kind == "fleet-delete":
+            fleet_delete(op, hosts)
+            return finish(op, state="waiting") or 0
+        elif kind == "image-build":
+            with L.lock("image-build", wait=False) as got:
+                if not got:
+                    raise Fail("an image build is already running")
+                image_build(op)
+        elif kind == "deploy":
+            ansible(op, "site.yml")
+        elif kind in ("fleet-apply", "reimage"):
+            fleet_hosts = set(L.fleet())
+            with L.lock("fleet"):
+                if kind == "fleet-apply" or any(h in fleet_hosts for h in hosts):
+                    fleet_apply(op, interactive=sys.stdin.isatty(),
+                                replace=[h for h in hosts if h in fleet_hosts])
+            for h in hosts:
+                if h not in fleet_hosts:      # a guest: rebuild it on its own state
+                    if h not in L.guests():
+                        raise Fail(f"{h} is neither in the fleet nor a guest machine")
+                    L.guest_phase(h, None, state="building", error=None, phases={"queued": time.time()})
+                    guest_create(op, h, replace=True)
+        finish(op)
+        return 0
+    except Exception as e:   # noqa: BLE001  every failure ends up on the record
+        why = str(e)
+        finish(op, error=why)
+        if kind == "guest-create" and hosts:
+            L.guest_phase(hosts[0], None, state="failed", error=why)
+        if kind == "guest-delete" and hosts:
+            L.update_json(L.guest_path(hosts[0]), lambda x: x.update(state="failed", error=f"removal failed: {why}"))
+        if not isinstance(e, Fail):
+            raise
+        print(f"lab: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

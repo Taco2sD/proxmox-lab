@@ -1,0 +1,7 @@
+# Safe at any time: operations run in their own units (worker.py), not under the worker.
+- name: Restart portal
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: true
+  loop: [lab-portal, lab-portal-worker]

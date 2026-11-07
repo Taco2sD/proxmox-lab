@@ -1,0 +1,27 @@
+# /etc/lab-portal/guacamole/compose.yml on mgmt01 (roles/guacamole): Apache Guacamole
+# for the self-service portal's "Connect" button (docs/self-service.md).
+#
+# JSON authentication only: no database and no Guacamole accounts. The portal signs and
+# encrypts a short-lived login (one SSH connection to the visitor's own machine) with the
+# shared key in /etc/lab-portal/guacamole.env, and Guacamole trusts nothing else.
+# guacd's SSH connections leave through Docker's NAT, so workstations see mgmt01's
+# address, the only one allowed to log in with a password (roles/ad_join: sshd).
+#
+# Images are pinned by digest as well as tag: a tag can be re-pushed, a digest can't.
+# To update: pull the new tag, `docker images --digests`, put both here.
+services:
+  guacd:
+    image: guacamole/guacd:1.6.0@sha256:8974eaa9ba32f713daf311e7cc8cd7e4cdfba1edea39eed75524e78ef4b08f4f
+    restart: unless-stopped
+
+  guacamole:
+    image: guacamole/guacamole:1.6.0@sha256:f344085e618bb05e22b964b0208dbd06d3468275bac70206f93805245e067b40
+    restart: unless-stopped
+    depends_on: [guacd]
+    env_file: /etc/lab-portal/guacamole.env      # JSON_SECRET_KEY (root-only file)
+    environment:
+      GUACD_HOSTNAME: guacd
+      JSON_ENABLED: "true"
+      REMOTE_IP_VALVE_ENABLED: "true"            # behind nginx: log the real client address
+    ports:
+      - "127.0.0.1:8085:8080"                    # only nginx (same host) reaches it

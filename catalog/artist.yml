@@ -1,0 +1,20 @@
+# The "artist" workstation: one entry in the lab's catalogue of workstation
+# definitions (like a Dev Box definition). A machine gets this definition by being in
+# the AD computer group "role-artist" (set from its inventory entry by roles/dc_identity).
+#
+# Read by:
+#   - the portal: name, description, tools (the role picker)
+#   - OpenTofu: size (terraform/fleet, terraform/guest)
+#   - the workstation itself (ansible-pull): packages, via roles/workstation_role, and
+#     login_groups, via roles/ad_join
+# Checked by tools/validate_inventory.py.
+name: Artist
+description: Ubuntu 26.04 with image and video tools.
+tools: [ImageMagick, FFmpeg]
+# Lightweight stand-ins for a real artist toolset (Maya, Houdini, Substance would be
+# internal packages from the studio's own repository)
+packages: [imagemagick, ffmpeg]
+# AD user groups that may log in on fleet machines of this role. A guest machine
+# admits only its owner (and ad_admin_groups), whatever its role.
+login_groups: [artists]
+size: {cores: 2, memory_mb: 3072, disk_gb: 24}

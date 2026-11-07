@@ -1,4 +1,4 @@
-# Managed by Ansible (ad_join role)
+# /etc/sssd/sssd.conf on every workstation. Managed by Ansible (roles/ad_join).
 [sssd]
 domains = {{ ad_domain }}
 services = nss, pam
@@ -27,7 +27,7 @@ dyndns_update = False
 # Who may log in on this machine: admins everywhere, plus the user groups for its role
 access_provider = simple
 simple_allow_groups = {{ ad_login_groups | join(', ') }}
-{% if guest_owner is defined %}
+{% if guest_owner %}
 # Guest machine requested through the portal: its owner may log in
 simple_allow_users = {{ guest_owner }}
 {% endif %}

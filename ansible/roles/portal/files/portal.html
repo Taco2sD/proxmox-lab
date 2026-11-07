@@ -1,0 +1,328 @@
+<!doctype html>
+<!-- The visitors' page of the self-service portal, served by portal.py at / (deployed to
+     mgmt01:/usr/local/lib/lab-portal/ by roles/portal). Flow modelled on Microsoft Dev
+     Box's developer portal: one "Add" form that closes on Create, a tile per machine
+     with its build steps, and Connect / More actions (details, delete) on the tile.
+     portal.py fills in __CONFIG__ (roles from catalog/, build steps from lablib.PHASES).
+     Shared look and helpers: /static/common.css and /static/common.js. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab workstations</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+main { max-width:1040px; margin:0 auto; padding:40px 16px 64px; }
+header.top { display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-bottom:28px; }
+
+.empty { text-align:center; padding:72px 16px; border:1px dashed var(--line); border-radius:14px; }
+.empty h2 { margin:0 0 6px; font-size:1.2rem; }
+.empty p { margin:0 auto 20px; max-width:460px; }
+
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:16px; }
+.tile { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:12px; position:relative; }
+.tile-head { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+.tile h2 { font-size:1.05rem; margin:0; }
+.step { font-size:.875rem; }
+.error { color:var(--bad); font-size:.875rem; margin:0; }
+.tile-foot { display:flex; gap:8px; align-items:center; margin-top:auto; }
+.more { margin-left:auto; position:relative; }
+.more > button { padding:6px 10px; line-height:1; }
+.menu { position:absolute; right:0; bottom:calc(100% + 6px); min-width:200px; background:var(--card); border:1px solid var(--line);
+        border-radius:10px; box-shadow:var(--shadow); padding:6px; z-index:5; display:none; }
+.menu.open { display:block; }
+.menu button { display:block; width:100%; text-align:left; background:transparent; border:0; border-radius:6px; padding:8px 10px; font-weight:500; color:var(--text); }
+.menu button:hover { background:var(--soft); }
+.menu button.del { color:var(--bad); }
+details.steps summary { cursor:pointer; font-size:.85rem; color:var(--muted); }
+ol.phases { list-style:none; padding:0; margin:8px 0 0; }
+ol.phases li { display:grid; grid-template-columns:18px 1fr auto; gap:0 8px; padding:3px 0; font-size:.85rem; color:var(--muted); }
+ol.phases .dot { width:10px; height:10px; border-radius:50%; border:2px solid var(--line); margin-top:5px; }
+ol.phases li.done { color:var(--text); } ol.phases li.done .dot { background:var(--ok); border-color:var(--ok); }
+ol.phases li.current { color:var(--text); font-weight:600; } ol.phases li.current .dot { border-color:var(--accent); animation:pulse 1.2s infinite; }
+ol.phases time { font-variant-numeric:tabular-nums; }
+@keyframes pulse { 50% { background:var(--accent); } }
+@media (prefers-reduced-motion: reduce) { ol.phases li.current .dot { animation:none; background:var(--accent); } .bar > div { transition:none; } }
+
+dialog { padding:0; width:min(480px, calc(100vw - 32px)); }   /* common.css, minus padding: the form has it */
+dialog form, dialog .body { padding:22px; }
+dialog h2 { margin:0 0 16px; }
+label.field { display:block; font-weight:600; margin:0 0 6px; }
+input[type=text], select { width:100%; padding:10px 12px; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+.check { min-height:1.4em; font-size:.85rem; margin:6px 0 16px; }
+.check.ok { color:var(--ok); } .check.bad { color:var(--bad); }
+.role-desc { font-size:.85rem; margin:6px 0 16px; }
+.info { background:var(--soft); border-radius:10px; padding:12px 14px; font-size:.875rem; margin-bottom:18px; }
+.info ul { margin:0; padding-left:18px; }
+dl.kv { display:grid; grid-template-columns:max-content 1fr auto; gap:10px 14px; align-items:center; margin:0 0 18px; }
+dl.kv dt { color:var(--muted); font-size:.875rem; }
+dl.kv dd { margin:0; font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:.9rem; word-break:break-all; }
+dl.kv button { padding:4px 10px; font-size:.8rem; }
+
+</style>
+<script src="/static/common.js"></script></head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1>Lab workstations</h1>
+      <div class="muted small" id="capacity"></div>
+    </div>
+    <button class="primary" id="new-top" hidden>+ New workstation</button>
+  </header>
+  <section id="tiles" aria-live="polite"></section>
+</main>
+
+<!-- Add a workstation: one form, closes on Create (like Dev Box's "Add a dev box") -->
+<dialog id="add" aria-labelledby="add-title">
+  <form method="dialog" id="add-form" novalidate>
+    <h2 id="add-title">Add a workstation</h2>
+    <label class="field" for="username">Username</label>
+    <input type="text" id="username" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="12" required aria-describedby="username-check">
+    <div class="check" id="username-check" role="status">Your AD account. 3 to 12 lowercase letters or digits.</div>
+    <label class="field" for="role">Role</label>
+    <select id="role" name="role"></select>
+    <div class="role-desc muted" id="role-desc"></div>
+    <div class="info">
+      <ul>
+        <li>The lab builds the machine for you: AD account, a VM cloned from the lab's image, domain join and role.</li>
+        <li>It takes a few minutes. You can watch every step on its tile.</li>
+        <li>Only you (and the lab admins) can log in to it.</li>
+      </ul>
+    </div>
+    <p class="error" id="add-error" role="alert"></p>
+    <div class="buttons">
+      <button type="button" class="ghost" id="add-cancel">Cancel</button>
+      <button type="submit" class="primary" id="add-create" disabled>Create</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Connect / details -->
+<dialog id="info" aria-labelledby="info-title">
+  <div class="body">
+    <h2 id="info-title"></h2>
+    <dl class="kv" id="info-kv"></dl>
+    <p class="muted small" id="info-note"></p>
+    <div class="buttons"><button class="primary" id="info-close">Close</button></div>
+  </div>
+</dialog>
+
+<!-- Delete confirmation -->
+<dialog id="del" aria-labelledby="del-title">
+  <div class="body">
+    <h2 id="del-title">Delete workstation</h2>
+    <p id="del-text"></p>
+    <div class="buttons">
+      <button class="ghost" id="del-cancel">Cancel</button>
+      <button class="danger" id="del-confirm">Delete</button>
+    </div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const CONFIG = __CONFIG__;
+const KEY = "lab-workstation-tokens";
+async function copy(text, what) { try { await navigator.clipboard.writeText(text); toast(`${what} copied`); } catch { toast("Copy failed"); } }
+
+// ---------------------------------------------------------------- this browser's workstations
+// Each machine's secret token stays in this browser. A link like /#t=<token> adds one
+// here (the part after # never reaches the server).
+function tokens() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } }
+function saveTokens(list) { try { localStorage.setItem(KEY, JSON.stringify([...new Set(list)])); } catch {} }
+const linked = new URLSearchParams(location.hash.slice(1)).get("t");
+if (linked) { saveTokens([...tokens(), linked]); history.replaceState(null, "", location.pathname); }
+
+
+// ---------------------------------------------------------------- tiles
+const KEYS = CONFIG.phases.map(p => p[0]);
+const LABEL = Object.fromEntries(CONFIG.phases.map(p => [p[0], p[1]]));
+const STATUS = { building: "Creating", ready: "Ready", failed: "Failed", removing: "Deleting" };
+const time = clock;                  // common.js
+const machines = new Map();          // token -> latest status
+const openSteps = new Set();         // tiles whose step list is expanded
+
+function tile(token, m) {
+  const phases = m.phases || {};
+  const done = KEYS.filter(k => k in phases).length;
+  const next = KEYS.find(k => !(k in phases));
+  const role = (CONFIG.roles[m.role] || {}).name || m.role;
+
+  const t = el("article", { class: "tile" },
+    el("div", { class: "tile-head" },
+      el("div", {}, el("h2", {}, m.host), el("div", { class: "muted small" }, `${role} · ${m.user}`)),
+      el("span", { class: "status " + m.state }, STATUS[m.state] || m.state)));
+
+  if (m.state === "building") {
+    t.append(el("div", { class: "step" }, `Step ${Math.min(done + 1, KEYS.length)} of ${KEYS.length}: ${LABEL[next] || ""}`),
+             el("div", { class: "bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": KEYS.length, "aria-valuenow": done },
+               el("div", { style: `width:${Math.round(100 * done / KEYS.length)}%` })));
+  } else if (m.state === "failed") {
+    t.append(el("p", { class: "error" }, m.error || "The build failed."));
+  } else if (m.state === "removing") {
+    t.append(el("div", { class: "step muted" }, "Removing the VM, its AD account and its records…"));
+  } else if (m.state === "ready") {
+    t.append(el("div", { class: "step muted" }, `${m.ip} · ready since ${time(phases.ready)}`));
+  }
+
+  const steps = el("details", { class: "steps", open: openSteps.has(token),
+                               ontoggle: e => e.target.open ? openSteps.add(token) : openSteps.delete(token) },
+    el("summary", {}, "Build steps"),
+    el("ol", { class: "phases" }, CONFIG.phases.map(([key, label]) =>
+      el("li", { class: key in phases ? "done" : (key === next && m.state === "building") ? "current" : "" },
+        el("span", { class: "dot" }), el("span", {}, label), el("time", {}, key in phases ? time(phases[key]) : "")))));
+  t.append(steps);
+
+  const menu = el("div", { class: "menu", role: "menu" },
+    el("button", { role: "menuitem", onclick: () => showInfo(token) }, "Details"),
+    el("button", { role: "menuitem", onclick: () => copy(`${location.origin}/#t=${token}`, "Link") }, "Copy link for another device"),
+    (m.state === "ready" || m.state === "failed")
+      ? el("button", { role: "menuitem", class: "del", onclick: () => confirmDelete(token) }, "Delete") : null);
+  const more = el("div", { class: "more" },
+    el("button", { class: "ghost", "aria-label": "More actions", "aria-haspopup": "menu",
+                   onclick: e => { e.stopPropagation(); closeMenus(menu); menu.classList.toggle("open"); } }, "⋯"), menu);
+  t.append(el("div", { class: "tile-foot" },
+    el("button", { class: "primary", disabled: m.state !== "ready", title: "Open a terminal in a new tab", onclick: () => connect(token) }, "Connect"), more));
+  return t;
+}
+function closeMenus(except) { document.querySelectorAll(".menu.open").forEach(m => m !== except && m.classList.remove("open")); }
+document.addEventListener("click", () => closeMenus());
+
+let timer = null;
+async function refresh() {
+  clearTimeout(timer);
+  const info = await api("/api/info");
+  let full = false;
+  if (info.ok) {
+    full = info.data.in_use >= info.data.max;
+    $("#capacity").textContent = `${info.data.in_use} of ${info.data.max} guest workstations in use`;
+  }
+  let busy = false;
+  for (const t of tokens()) {
+    const r = await api("/api/status", { token: t });
+    if (r.status === 404) { saveTokens(tokens().filter(x => x !== t)); machines.delete(t); continue; }
+    if (!r.ok) continue;
+    machines.set(t, r.data);
+    if (r.data.state === "building" || r.data.state === "removing") busy = true;
+  }
+  const list = [...machines.entries()];
+  const newTop = $("#new-top");
+  newTop.hidden = list.length === 0;
+  newTop.disabled = full;
+  newTop.title = full ? "The lab is full. Try again later." : "";
+  $("#tiles").replaceChildren(list.length
+    ? el("div", { class: "grid" }, list.map(([t, m]) => tile(t, m)))
+    : el("div", { class: "empty" },
+        el("h2", {}, "Get a lab workstation"),
+        el("p", { class: "muted" }, "The lab builds an Ubuntu workstation for you: AD account, a virtual machine cloned from the lab's image, domain join and role configuration. It takes a few minutes, and you can watch every step."),
+        el("button", { class: "primary", disabled: full, onclick: openAdd }, full ? "The lab is full" : "+ New workstation")));
+  timer = setTimeout(refresh, busy ? 2000 : 15000);
+}
+
+// ---------------------------------------------------------------- Add a workstation
+const add = $("#add"), uname = $("#username"), check = $("#username-check"), create = $("#add-create");
+for (const [key, r] of Object.entries(CONFIG.roles)) $("#role").append(el("option", { value: key }, r.name));
+const describeRole = () => { const r = CONFIG.roles[$("#role").value]; $("#role-desc").textContent = `${r.desc} Includes ${r.tools.join(", ")}.`; };
+$("#role").addEventListener("change", describeRole);
+
+let seq = 0, debounce;
+async function validate() {
+  const u = uname.value.trim().toLowerCase();
+  create.disabled = true;
+  if (!u) { check.className = "check"; check.textContent = "Your AD account. 3 to 12 lowercase letters or digits."; return; }
+  if (!/^[a-z][a-z0-9]{2,11}$/.test(u)) { check.className = "check bad"; check.textContent = "3 to 12 lowercase letters or digits, starting with a letter."; return; }
+  const mine = ++seq;
+  const r = await api("/api/check?username=" + encodeURIComponent(u));
+  if (mine !== seq) return;
+  if (r.data.ok) { check.className = "check ok"; check.textContent = `Available. Your machine will be ws-${u}.`; create.disabled = false; }
+  else { check.className = "check bad"; check.textContent = r.data.reason || "Not available."; }
+}
+uname.addEventListener("input", () => { clearTimeout(debounce); debounce = setTimeout(validate, 250); });
+
+function openAdd() {
+  $("#add-form").reset(); $("#add-error").textContent = ""; describeRole(); validate();
+  add.showModal(); uname.focus();
+}
+$("#new-top").addEventListener("click", openAdd);
+$("#add-cancel").addEventListener("click", () => add.close());
+$("#add-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (create.disabled) return;
+  create.disabled = true; create.textContent = "Creating…";
+  const r = await api("/api/request", { body: { username: uname.value.trim().toLowerCase(), role: $("#role").value } });
+  create.textContent = "Create";
+  if (!r.ok) { $("#add-error").textContent = r.data.error || "Something went wrong. Try again."; create.disabled = false; return; }
+  saveTokens([...tokens(), r.data.token]);
+  add.close();                                     // like Dev Box: the tile takes over from here
+  toast(`Creating ws-${uname.value.trim().toLowerCase()}`);
+  refresh();
+});
+
+// ---------------------------------------------------------------- Connect
+// The tab opens on the click itself (pop-up blockers allow that), then gets its address:
+// a 60-second, encrypted Guacamole login that opens an SSH session to the machine.
+async function connect(token) {
+  const tab = window.open("about:blank", "_blank");
+  await endGuacamoleSession();
+  const r = await api("/api/connect", { token, method: "POST" });
+  if (r.ok && tab) { tab.location = r.data.url; return; }
+  if (tab) tab.close();
+  toast(r.data.error || "Couldn't open the terminal");
+}
+
+// Guacamole (same origin) keeps its session token in localStorage and sends it with
+// every login. With a session open, it reuses that session and ignores our new login,
+// whose connection list has expired by then: "No recent connections", empty "All
+// connections". So sign that session out properly and forget it before each Connect.
+async function endGuacamoleSession() {
+  let old = null;
+  try { old = JSON.parse(localStorage.getItem("GUAC_AUTH_TOKEN")); } catch {}
+  if (old) await fetch("/guacamole/api/tokens/" + encodeURIComponent(old), { method: "DELETE" }).catch(() => {});
+  try { localStorage.removeItem("GUAC_AUTH_TOKEN"); } catch {}
+}
+
+// ---------------------------------------------------------------- Details
+function showInfo(token, connect = false) {
+  const m = machines.get(token); if (!m) return;
+  let shown = false;
+  const pw = el("dd", {}, "••••••••••••••••");
+  const rows = [
+    ["Machine", m.host, null], ["Address", m.ip || "not assigned yet", null],
+    ["Role", (CONFIG.roles[m.role] || {}).name || m.role, null],
+  ];
+  if (m.state === "ready") rows.push(["Username", m.user, () => copy(m.user, "Username")]);
+  $("#info-title").textContent = connect ? `Connect to ${m.host}` : `${m.host} details`;
+  $("#info-kv").replaceChildren(...rows.flatMap(([k, v, act]) =>
+    [el("dt", {}, k), el("dd", {}, v), act ? el("button", { class: "ghost", onclick: act }, "Copy") : el("span")]));
+  if (m.state === "ready") {
+    $("#info-kv").append(el("dt", {}, "Password"), pw,
+      el("div", { style: "display:flex;gap:6px" },
+        el("button", { class: "ghost", onclick: e => { shown = !shown; pw.textContent = shown ? m.password : "••••••••••••••••"; e.target.textContent = shown ? "Hide" : "Show"; } }, "Show"),
+        el("button", { class: "ghost", onclick: () => copy(m.password, "Password") }, "Copy")));
+  }
+  $("#info-note").textContent = m.state === "ready"
+    ? "Connect opens a terminal in your browser, already logged in. Lab admins can also use: ssh -J mgmt01 " + m.user + "@" + m.ip
+    : "";
+  $("#info").showModal();
+}
+$("#info-close").addEventListener("click", () => $("#info").close());
+
+// ---------------------------------------------------------------- Delete
+let deleting = null;
+function confirmDelete(token) {
+  const m = machines.get(token); if (!m) return;
+  deleting = token;
+  $("#del-text").textContent = `This deletes ${m.host}, its disk and your AD account ${m.user}. You can't retrieve a workstation after deletion.`;
+  $("#del").showModal();
+}
+$("#del-cancel").addEventListener("click", () => $("#del").close());
+$("#del-confirm").addEventListener("click", async () => {
+  const r = await api("/api/delete", { token: deleting, method: "POST" });
+  $("#del").close();
+  toast(r.ok ? "Deleting workstation" : (r.data.error || "Delete failed"));
+  refresh();
+});
+
+refresh();
+</script>
+</body></html>

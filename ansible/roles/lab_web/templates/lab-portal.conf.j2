@@ -1,0 +1,33 @@
+# /etc/nginx/sites-enabled/lab-portal on mgmt01, deployed by roles/lab_web.
+# Everything is HTTPS with a Let's Encrypt certificate for {{ lab_fqdn }} (roles/acme_cert,
+# DNS-01 via acme-dns). Inside the lab, AD DNS points that name at mgmt01 (roles/lab_dns).
+# The only plain-HTTP site on mgmt01 serves the installer ISO (roles/pxe: lab-boot.conf).
+
+# 443: the lab network. Portal, browser terminal, and what new machines need.
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name {{ lab_fqdn }};
+    include snippets/lab-tls.conf;
+
+    include snippets/lab-portal-locations.conf;   # portal + Guacamole
+
+    # Install records for PXE installs (roles/pxe: the golden image builder)
+    location /autoinstall/ {
+        root /var/www/lab;
+        try_files $uri =404;
+    }
+    include snippets/lab-otp.conf;      # one-time join passwords, each for one address
+    include snippets/lab-events.conf;   # workstations report finished configuration runs
+}
+
+# 8443: the internet, via the VPS and pve01's relay (roles/portal_relay). The portal and
+# the terminal only: no install records, no join passwords, no events.
+server {
+    listen 8443 ssl;
+    listen [::]:8443 ssl;
+    server_name {{ lab_fqdn }};
+    include snippets/lab-tls.conf;
+
+    include snippets/lab-portal-locations.conf;
+}

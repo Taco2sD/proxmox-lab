@@ -1,0 +1,21 @@
+# One catalogue entry applied to this workstation (ansible/local.yml includes this once
+# per role-* group AD gives the machine). workstation_role_name is the entry's name,
+# `catalog` was loaded by roles/ad_join from catalog/*.yml.
+#
+# Adding a role to the lab is adding a catalog/<name>.yml and an AD group role-<name>;
+# nothing here changes.
+
+- name: Load the catalogue entry for {{ workstation_role_name }}
+  ansible.builtin.set_fact:
+    workstation_def: "{{ catalog[workstation_role_name] }}"
+
+- name: Install the packages for {{ workstation_def.name }}
+  ansible.builtin.apt:
+    name: "{{ workstation_def.packages }}"
+    state: present
+
+- name: Say what this machine is at login
+  ansible.builtin.copy:
+    dest: /etc/motd
+    content: "{{ workstation_def.name }} workstation - managed by Ansible (catalog/{{ workstation_role_name }}.yml)\n"
+    mode: "0644"

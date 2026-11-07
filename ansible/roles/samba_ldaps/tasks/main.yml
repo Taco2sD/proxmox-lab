@@ -1,0 +1,29 @@
+# dc01: LDAPS with a Let's Encrypt certificate for {{ ldaps_fqdn }}, a name that exists
+# only inside the lab (roles/lab_dns). The portal's admin page checks passwords over it
+# (roles/portal: portal.py, ad_admin_login). Part of ansible/site.yml.
+#
+# Why not Samba's own certificate: it's self-signed and lacks the Authority Key
+# Identifier extension, which strict X.509 checking (Python 3.13+) rejects.
+
+- name: Deploy hook (installs each new certificate for Samba and restarts it)
+  ansible.builtin.copy:
+    src: samba-tls-deploy
+    dest: /usr/local/sbin/samba-tls-deploy
+    mode: "0755"
+
+- name: Certificate for {{ ldaps_fqdn }}
+  ansible.builtin.include_role:
+    name: acme_cert
+  vars:
+    acme_cert_name: "{{ ldaps_fqdn }}"
+    acme_accounts_dir: /etc/acme-dns-client
+    acme_deploy_hook: /usr/local/sbin/samba-tls-deploy
+
+- name: Samba uses it for LDAPS
+  ansible.builtin.lineinfile:
+    path: /etc/samba/smb.conf
+    regexp: "^\\s*tls {{ item.key }}\\s*="
+    line: "\ttls {{ item.key }} = {{ item.value }}"
+    insertafter: '^\[global\]'
+  loop: "{{ {'certfile': 'tls/le-cert.pem', 'keyfile': 'tls/le-key.pem', 'cafile': 'tls/le-chain.pem'} | dict2items }}"
+  notify: Restart Samba

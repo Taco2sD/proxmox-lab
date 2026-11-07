@@ -1,0 +1,15 @@
+# /etc/systemd/system/lab-portal-relay.socket on pve01 (roles/portal_relay): the self-service portal for the
+# internet. The VPS connects to 10.99.0.2:8443 through the WireGuard tunnel; each
+# connection is handed to lab-portal-relay.service, which passes the raw TCP stream on
+# to mgmt01:8443. TLS stays end to end (VPS <-> mgmt01): pve01 never sees inside it,
+# and no IP forwarding is needed. The tunnel firewall (lab.nft) admits only 8006, 8443.
+[Unit]
+Description=Relay the self-service portal from the tunnel to mgmt01
+
+[Socket]
+ListenStream=10.99.0.2:8443
+# The tunnel address appears only once wg-quick@lab is up
+FreeBind=yes
+
+[Install]
+WantedBy=sockets.target

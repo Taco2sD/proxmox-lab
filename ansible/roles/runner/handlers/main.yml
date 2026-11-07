@@ -1,0 +1,7 @@
+- name: Apply tmpfiles
+  ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/lab.conf
+  changed_when: true
+
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true

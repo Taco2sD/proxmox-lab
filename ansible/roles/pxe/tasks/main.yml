@@ -1,0 +1,62 @@
+# mgmt01: network installs. The boot menu (TFTP), the install records (HTTPS, served by
+# roles/lab_web from /var/www/lab/autoinstall), and the installer ISO (plain HTTP,
+# lab-boot.conf). Part of ansible/site.yml.
+#
+# One install record today: the golden image builder's (image-user-data.yaml.j2 explains
+# the build). Workstations themselves are clones and never network-boot.
+
+- name: PXE boot menu
+  ansible.builtin.template:
+    src: grub.cfg.j2
+    dest: /srv/tftp/grub/grub.cfg
+    mode: "0644"
+
+- name: Install record directory for the image builder
+  ansible.builtin.file:
+    path: "/var/www/lab/autoinstall/{{ image_builder.name }}"
+    state: directory
+    mode: "0755"
+
+- name: The image builder's autoinstall (user-data)
+  ansible.builtin.template:
+    src: image-user-data.yaml.j2
+    dest: "/var/www/lab/autoinstall/{{ image_builder.name }}/user-data"
+    mode: "0644"
+  vars:
+    pxe_admin_hash: "{{ lookup('ansible.builtin.file', pxe_admin_hash_file) | trim }}"
+    pxe_admin_key: "{{ lookup('ansible.builtin.file', pxe_admin_key_file) | trim }}"
+
+- name: Write meta-data too (the NoCloud datasource wants both files)
+  ansible.builtin.copy:
+    content: "instance-id: {{ image_builder.name }}\n"
+    dest: "/var/www/lab/autoinstall/{{ image_builder.name }}/meta-data"
+    mode: "0644"
+
+# GRUB asks for /autoinstall/<its MAC>/ (${net_default_mac}, lower case with colons)
+- name: The builder's MAC address leads to its record
+  ansible.builtin.file:
+    src: "{{ image_builder.name }}"
+    dest: "/var/www/lab/autoinstall/{{ image_builder.mac | lower }}"
+    state: link
+    force: true
+
+- name: The ISO-only plain-HTTP site
+  ansible.builtin.copy:
+    src: lab-boot.conf
+    dest: /etc/nginx/sites-available/lab-boot
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Enable it
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/lab-boot
+    dest: /etc/nginx/sites-enabled/lab-boot
+    state: link
+  notify: Reload nginx
+
+# Per-workstation install records from before the golden image (ws03, ws04, their MAC
+# links, the template they were made from). Clones don't need them.
+- name: Retire the old per-workstation install records
+  ansible.builtin.file:
+    path: /var/www/html/autoinstall
+    state: absent

@@ -1,0 +1,18 @@
+# The servers Ansible manages over SSH, from mgmt01 (the lab's runner: `lab` runs
+# every playbook from mgmt01:/opt/proxmox-lab). Workstations aren't here: they
+# configure themselves with ansible-pull (ansible/local.yml).
+#
+# Automation logs in as svc-runner: a dedicated, key-only account that accepts mgmt01's
+# runner key only from mgmt01's address (created once by ansible/bootstrap.yml).
+all:
+  vars:
+    ansible_user: svc-runner
+    ansible_become: true
+  hosts:
+    dc01:                       # Samba AD DC, DNS, DHCP (VM 105)
+      ansible_host: 10.10.10.5
+    pve01:                      # Proxmox VE: the hypervisor, and the tunnel to the VPS
+      ansible_host: 10.10.10.10
+    mgmt01:                     # runner, PXE, portal, Guacamole (LXC 106): this machine
+      ansible_connection: local
+      ansible_become: false     # `lab` already runs as root

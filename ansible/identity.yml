@@ -1,0 +1,53 @@
+# Workstation identity: everything a workstation needs outside its VM, made to match
+# the inventory. Run by `lab` only (ansible/roles/runner/files/lab: identity()), which
+# passes the inventory in, so this never reads inventory files itself.
+#
+# Input (extra vars, from a root-only JSON file lab writes):
+#   lab_phase      present: before OpenTofu creates VMs
+#                  cleanup: after OpenTofu destroyed VMs
+#   lab_scope      "all", or a list of host names: only these are touched
+#   lab_desired    {host: {vmid, mac, ip, role, owner?, kind}}: the fleet + active guests
+#   lab_removed    {host: spec}: guest machines being deleted (their owners' accounts go too)
+#   lab_otp_hosts  hosts that get a new one-time join password (new or rebuilt)
+#
+# present: AD computer account in role-<role>; for guests, the owner's account and
+#          managedBy; DHCP reservation; the join password, published for that host only.
+# cleanup: the same for every machine in scope that's no longer desired, plus its DHCP
+#          lease, which takes its DNS records with it (roles/dhcp_server: dhcp-dns-update).
+
+- name: Join passwords and guest passwords (mgmt01)
+  hosts: mgmt01
+  gather_facts: false
+  tasks:
+    - name: A new random password per host that gets one
+      ansible.builtin.set_fact:
+        lab_otp: >-
+          {{ lab_otp | default({}) | combine({item: lookup('ansible.builtin.password', '/dev/null',
+             chars=['ascii_letters', 'digits'], length=24)}) }}
+      loop: "{{ lab_otp_hosts | default([]) }}"
+      no_log: true
+
+    # The portal stores each visitor's password on mgmt01 only (never in git); the AD
+    # account is created with it, so the visitor's terminal login works.
+    - name: Guest owners' passwords
+      ansible.builtin.set_fact:
+        lab_guest_passwords: >-
+          {{ lab_guest_passwords | default({}) | combine({item.value.owner:
+             lookup('ansible.builtin.file', '/var/lib/lab/passwords/' ~ item.value.owner, errors='warn')}) }}
+      loop: "{{ lab_desired | dict2items | selectattr('value.owner', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: lab_phase == 'present' and (lab_scope == 'all' or item.key in lab_scope)
+      no_log: true
+
+- name: AD accounts and DHCP reservations (dc01)
+  hosts: dc01
+  gather_facts: false
+  roles:
+    - dc_identity
+
+- name: Publish or withdraw join passwords (mgmt01)
+  hosts: mgmt01
+  gather_facts: false
+  roles:
+    - join_otp

@@ -1,0 +1,36 @@
+# /etc/dnsmasq.d/lab-dhcp.conf on dc01 (roles/dhcp_server): DHCP for the lab.
+# DNS is Samba's job on this host, so dnsmasq's own DNS server stays off.
+port=0
+interface=ens18
+bind-interfaces
+dhcp-authoritative
+dhcp-range={{ dhcp_pool[0] }},{{ dhcp_pool[1] }},255.255.255.0,12h
+dhcp-option=option:router,{{ lab_gateway }}
+dhcp-option=option:dns-server,{{ dc01_ip }}
+dhcp-option=option:domain-name,{{ ad_domain }}
+dhcp-option=option:domain-search,{{ ad_domain }}
+dhcp-option=option:ntp-server,{{ dc01_ip }}
+
+# Reservations (MAC -> IP -> name) are the single source of truth for addresses; DNS A
+# and PTR records are derived from them by dhcp-script below.
+#
+# Static by necessity (not DHCP clients), outside the pool; their records were created
+# once with samba-tool (the Infoblox "fixed address" equivalent):
+#   {{ lab_gateway }}   Hyper-V host (LabNAT gateway)
+#   {{ dc01_ip }}   dc01   (DNS + DHCP server itself)
+#   {{ pve01_ip }}  pve01  (hypervisor)
+#
+# Servers' reservations are here; workstations' come one file per machine from
+# roles/dc_identity (ansible/identity.yml). dnsmasq reads new files in that directory by
+# itself; deleted or changed ones need a SIGHUP, which dc_identity sends.
+dhcp-host={{ mgmt01_mac }},{{ mgmt01_ip }},mgmt01
+dhcp-host={{ image_builder.mac }},{{ image_builder.ip }},{{ image_builder.name }}
+dhcp-hostsdir=/etc/dnsmasq-hosts.d
+
+# PXE: UEFI x86-64 clients (client-arch 7 or 9) boot bootx64.efi from mgmt01 (roles/pxe)
+dhcp-match=set:efi-x64,option:client-arch,7
+dhcp-match=set:efi-x64,option:client-arch,9
+dhcp-boot=tag:efi-x64,bootx64.efi,,{{ mgmt01_ip }}
+
+# DDNS: on every lease event, register the client in AD DNS (as svc-dhcp-dns)
+dhcp-script=/usr/local/sbin/dhcp-dns-update

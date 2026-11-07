@@ -1,0 +1,20 @@
+# /etc/systemd/system/lab-portal.service on mgmt01 (roles/portal): the portal's web side
+# (portal.py). Unprivileged and sandboxed: it can only drop requests and reserve
+# usernames; it reads everything else. nginx proxies to it (roles/lab_web).
+[Unit]
+Description=Lab self-service portal (web)
+After=network-online.target
+
+[Service]
+User=labportal
+Group=labportal
+ExecStart=/usr/bin/python3 /usr/local/lib/lab-portal/portal.py
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/lab/requests /var/lib/lab/passwords
+
+[Install]
+WantedBy=multi-user.target

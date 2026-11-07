@@ -1,0 +1,22 @@
+# /srv/tftp/grub/grub.cfg on mgmt01 (roles/pxe): the PXE boot menu.
+#
+# Any machine whose disk is blank network-boots: dc01's DHCP (roles/dhcp_server) sends
+# UEFI clients to mgmt01's TFTP server for shim and GRUB, which load this. Today that's
+# the golden image builder (`lab image build`); a bare-metal machine would boot the same
+# way and find its own install record by its MAC.
+#
+# HTTPS where it can be: the install record comes from https://{{ lab_fqdn }}, which
+# resolves to mgmt01 inside the lab (roles/lab_dns) and has a Let's Encrypt certificate
+# the stock installer already trusts. The one exception is the installer ISO: GRUB and
+# the initramfs fetch it before any TLS client exists, so it comes over plain HTTP from
+# mgmt01 port 80, which serves nothing else (lab-boot.conf). It's a public image.
+set default=0
+set timeout=5
+
+menuentry "Autoinstall Ubuntu 26.04 (lab)" {
+    echo "MAC: ${net_default_mac} - loading kernel..."
+    # initramfs_options=size=90%: the netboot installer holds the whole ISO in RAM
+    linux /{{ pxe_kernel_dir }}/vmlinuz ip=dhcp url=http://{{ mgmt01_ip }}/{{ pxe_iso }} cloud-config-url=/dev/null initramfs_options=size=90% autoinstall "ds=nocloud;s=https://{{ lab_fqdn }}/autoinstall/${net_default_mac}/" ---
+    echo "Loading initrd (96 MB over TFTP, give it a moment)..."
+    initrd /{{ pxe_kernel_dir }}/initrd
+}

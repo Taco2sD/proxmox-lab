@@ -1,23 +1,39 @@
 #!/bin/sh
-# Ansible local fact (managed by Ansible, ad_join role).
-# Prints JSON: which AD groups is THIS computer account a member of?
-# It authenticates as the machine itself, using the keytab written by the join,
-# so no admin credentials are involved.
+# /etc/ansible/facts.d/ad.fact on every workstation (roles/ad_join). Managed by Ansible.
+#
+# Prints JSON: which AD groups is THIS computer account a member of, and who owns it?
+#   groups: its role-* groups decide which catalog/ entries apply (ansible/local.yml)
+#   owner:  a guest machine's owner (the account's managedBy), the only regular user
+#           allowed to log in on it (sssd.conf.j2)
+# Both are set on dc01 from the inventory by roles/dc_identity.
+#
+# It authenticates as the machine itself, using the keytab written by the join, so no
+# admin credentials are involved.
 me="$(hostname -s | tr '[:lower:]' '[:upper:]')\$"
 cc="$(mktemp)"
 trap 'rm -f "$cc"' EXIT
 
 if ! kinit -k -c "FILE:$cc" "$me" >/dev/null 2>&1; then
-  echo '{"joined": false, "groups": []}'
+  echo '{"joined": false, "groups": [], "owner": ""}'
   exit 0
 fi
 
-# -N: don't use reverse DNS to work out the server's Kerberos name (no PTR records here)
-groups="$(KRB5CCNAME="FILE:$cc" ldapsearch -N -Q -LLL -o ldif-wrap=no -Y GSSAPI \
-            -H "ldap://{{ ad_dc }}" -b "{{ ad_base_dn }}" "(sAMAccountName=$me)" memberOf 2>/dev/null \
-          | sed -n 's/^memberOf: CN=\([^,]*\),.*/\1/p')"
+# -N: don't use reverse DNS to work out the server's Kerberos name
+q() {
+  KRB5CCNAME="FILE:$cc" ldapsearch -N -Q -LLL -o ldif-wrap=no -Y GSSAPI \
+    -H "ldap://{{ ad_dc }}" "$@" 2>/dev/null
+}
+mine="$(q -b "{{ ad_base_dn }}" "(sAMAccountName=$me)" memberOf managedBy)"
+groups="$(printf '%s\n' "$mine" | sed -n 's/^memberOf: CN=\([^,]*\),.*/\1/p')"
+
+# managedBy holds a DN; the owner's login name is that account's sAMAccountName
+owner=""
+owner_dn="$(printf '%s\n' "$mine" | sed -n 's/^managedBy: //p')"
+if [ -n "$owner_dn" ]; then
+  owner="$(q -s base -b "$owner_dn" sAMAccountName | sed -n 's/^sAMAccountName: //p')"
+fi
 
 printf '{"joined": true, "groups": ['
 sep=""
 for g in $groups; do printf '%s"%s"' "$sep" "$g"; sep=","; done
-printf ']}\n'
+printf '], "owner": "%s"}\n' "$owner"

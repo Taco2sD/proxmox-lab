@@ -55,10 +55,10 @@ publishes only `POST /update`).
 
 | Certificate | Issued on | Client | Account |
 |---|---|---|---|
-| `lab.radicallydecent.com` | VPS and mgmt01 | certbot + `mgmt01/portal/certbot-acme-dns-hook` | `/etc/acme-dns/accounts/`, `/etc/lab-portal/acme-dns/` |
+| `lab.radicallydecent.com` | VPS and mgmt01 | certbot + its acme-dns hook (`ansible/roles/acme_cert`) | `/etc/acme-dns/accounts/`, `/etc/lab-portal/acme-dns/` |
 | `pve.radicallydecent.com` | VPS and pve01 | certbot; Proxmox's ACME client (`acmedns` plugin) | `/etc/acme-dns/accounts/`, `/root/acme-dns/` |
 | `acme-ns.radicallydecent.com` | VPS | certbot | `/etc/acme-dns/accounts/` |
-| `dc01.lab.radicallydecent.com` | dc01 (LDAPS) | certbot; `dc01/samba-tls-deploy` installs it and restarts Samba | `/etc/acme-dns-client/` |
+| `dc01.lab.radicallydecent.com` | dc01 (LDAPS) | certbot; `ansible/roles/samba_ldaps` installs it and restarts Samba | `/etc/acme-dns-client/` |
 
 `dc01.lab.radicallydecent.com` exists only inside the lab; Let's Encrypt never needs to
 reach it, only its challenge record. certbot timers and Proxmox renew everything. ACME

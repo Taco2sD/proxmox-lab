@@ -1,0 +1,24 @@
+#!/bin/sh
+# /usr/local/sbin/certbot-acme-dns-hook (roles/acme_cert on mgmt01 and dc01; the VPS has
+# its own copy, vps/README.md). certbot --manual-auth-hook: publish a DNS-01 answer
+# through acme-dns on the VPS.
+#
+# _acme-challenge.<name>.radicallydecent.com is a permanent CNAME to that name's record
+# in acme.radicallydecent.com, which acme-dns serves. The account for <name> (username,
+# password, subdomain) can change only that one TXT record, so the machine holding it
+# can't touch anything else in the domain. The Porkbun API key stays off lab machines.
+#
+# Settings, optionally from /etc/default/certbot-acme-dns:
+#   ACMEDNS_API       acme-dns API (default: local, on the VPS itself)
+#   ACMEDNS_ACCOUNTS  directory with <first label of the name>.json accounts
+set -eu
+# shellcheck source=/dev/null
+[ -r /etc/default/certbot-acme-dns ] && . /etc/default/certbot-acme-dns
+api="${ACMEDNS_API:-http://127.0.0.1:8053}"
+acct="${ACMEDNS_ACCOUNTS:-/etc/acme-dns/accounts}/${CERTBOT_DOMAIN%%.*}.json"
+field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$acct" "$1"; }
+curl -fsS -X POST "$api/update" \
+     -H "X-Api-User: $(field username)" -H "X-Api-Key: $(field password)" \
+     -H "Content-Type: application/json" \
+     -d "{\"subdomain\": \"$(field subdomain)\", \"txt\": \"$CERTBOT_VALIDATION\"}" >/dev/null
+sleep 5   # acme-dns answers at once; a moment for its write to settle

@@ -1,0 +1,32 @@
+#!/bin/sh
+# /usr/local/sbin/lab-generalize in the image builder (roles/pxe: image-user-data.yaml.j2).
+# Runs once, at the end of the builder's first boot (after cloud-init has finished), and
+# turns the installed system into a golden image: everything that must be unique per
+# machine is removed so each clone creates its own, then the VM powers off, which tells
+# `lab image build` that the image is ready to become a template.
+set -u
+systemctl disable lab-generalize.service
+
+# cloud-init: forget this instance, so each clone runs it as new (hostname, network, keys
+# from Proxmox's cloud-init drive). --configs needs cloud-init 24.1+; fall back if older.
+cloud-init clean --logs --seed --machine-id --configs all || cloud-init clean --logs --seed --machine-id
+
+# The installer's own cloud-init settings: they pin the datasource to the installer's
+# and switch off cloud-init networking, which would stop clones from reading Proxmox's
+# cloud-init drive.
+rm -f /etc/cloud/cloud.cfg.d/99-installer.cfg \
+      /etc/cloud/cloud.cfg.d/90-installer-network.cfg \
+      /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg
+# The builder's network config names its MAC; clones get theirs from cloud-init.
+rm -f /etc/netplan/*.yaml
+# Host keys: cloud-init creates new ones on each clone's first boot.
+rm -f /etc/ssh/ssh_host_*
+# Machine identity: an empty machine-id is regenerated on first boot (and with it the
+# DHCP client ID).
+truncate -s 0 /etc/machine-id
+rm -f /var/lib/dbus/machine-id
+apt-get clean
+rm -rf /var/lib/ansible-pull /etc/ad-join-otp /var/lib/lab-firstboot.done
+
+sync
+systemctl poweroff

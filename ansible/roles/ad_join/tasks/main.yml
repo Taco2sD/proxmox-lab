@@ -84,28 +84,34 @@
 
 - name: Remember the answer for the rest of the play (role selection in local.yml)
   ansible.builtin.set_fact:
-    ad_groups: "{{ (((ad_lookup.stdout | default('', true)) or '{}') | from_json).groups | default([]) }}"
+    ad_answer: "{{ ((ad_lookup.stdout | default('', true)) or '{}') | from_json }}"
 
-- name: Is this a guest machine from the portal? (inventory/guests/<hostname>.yml)
-  ansible.builtin.stat:
-    path: "{{ playbook_dir }}/../inventory/guests/{{ ansible_facts.hostname }}.yml"
-  register: guest_file
-
-- name: Its owner (the only regular user allowed to log in on it)
+- name: This machine's role groups, and its owner if it's a guest machine
   ansible.builtin.set_fact:
-    guest_owner: "{{ (lookup('ansible.builtin.file', guest_file.stat.path) | from_yaml)[ansible_facts.hostname].owner }}"
-  when: guest_file.stat.exists
+    ad_groups: "{{ ad_answer.groups | default([]) }}"
+    # A guest machine's owner is the computer account's managedBy in AD (set by
+    # roles/dc_identity from the portal's record): the only regular user who may log in.
+    guest_owner: "{{ ad_answer.owner | default('') }}"
+
+- name: The catalogue (catalog/*.yml in this machine's checkout of the repository)
+  ansible.builtin.set_fact:
+    catalog: >-
+      {{ catalog | default({}) | combine({(item | basename | regex_replace('\.yml$', '')):
+         (lookup('ansible.builtin.file', item) | from_yaml)}) }}
+  loop: "{{ query('ansible.builtin.fileglob', playbook_dir ~ '/../catalog/*.yml') }}"
+  loop_control:
+    label: "{{ item | basename }}"
 
 - name: Work out which AD user groups may log in here
   ansible.builtin.set_fact:
     # Guest machines: only the owner (simple_allow_users) and the admins.
-    # Regular workstations: the admins plus the user groups for the machine's role.
+    # Fleet machines: the admins plus the login groups of each catalog/ entry AD
+    # assigns this machine (role-artist -> catalog/artist.yml: login_groups).
     ad_login_groups: >-
-      {{ ad_admin_groups if guest_owner is defined else
+      {{ ad_admin_groups if guest_owner else
          ad_admin_groups
-         + (ad_groups
-            | select('in', role_login_groups)
-            | map('extract', role_login_groups) | flatten) }}
+         + (ad_groups | select('match', '^role-') | map('regex_replace', '^role-', '')
+            | select('in', catalog) | map('extract', catalog) | map(attribute='login_groups') | flatten) }}
 
 # ---- Logins -----------------------------------------------------------------
 
@@ -145,12 +151,12 @@
     dest: /etc/ssh/sshd_config.d/99-guacamole.conf
     content: |
       # Managed by Ansible (ad_join role)
-      Match Address 10.10.10.6
+      Match Address {{ mgmt01_ip }}
           PasswordAuthentication yes
     mode: "0644"
   notify: Reload sshd
 
-- name: sudo for workstation admins
+- name: Grant sudo to workstation admins
   ansible.builtin.copy:
     dest: /etc/sudoers.d/ad-admins
     content: |

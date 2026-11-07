@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""Self-service portal, worker side: the dispatcher. Runs on mgmt01 as root.
+
+Deployed to mgmt01:/usr/local/lib/lab-portal/worker.py by roles/portal, run by
+lab-portal-worker.service. docs/self-service.md describes the whole flow.
+
+The web side (portal.py, unprivileged) can only drop request files. This process turns
+them into operations, and `lab` carries them out:
+
+  requests/<...>.json  ->  checks, a guest record / an approval  ->  ops/<id>.json
+                       ->  `systemd-run --unit lab-op-<id> lab op run <id>`
+
+Each operation runs in its own transient systemd unit, not as a child of this process,
+so restarting the worker (a deployment does that) never kills a build or a delete in
+progress, and `journalctl -u lab-op-<id>` shows its output.
+
+Besides dispatching, it watches:
+  - nginx's lab-events log: workstations fetching their one-time join password
+    (joining) and reporting finished configuration runs (ready, check-ins)
+  - Proxmox, every minute: which VMs exist and run (observed.json, for the admin page)
+  - stalled builds, and operations whose unit died without finishing
+"""
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+
+sys.path.insert(0, "/usr/local/lib/lab")
+import lablib as L  # noqa: E402
+
+STALL = 20 * 60          # a guest build with no new phase for this long has failed
+OBSERVE_EVERY = 60       # seconds between Proxmox status reads
+DC01 = ["ssh", "-n", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5"]
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+# ---------------------------------------------------------------- starting operations
+def launch(op):
+    """Run `lab op run <id>` in its own transient systemd unit (see the module docstring)."""
+    unit = f"lab-op-{op['id']}"
+    r = subprocess.run(["systemd-run", f"--unit={unit}", "--collect", "--quiet",
+                        "--property=SyslogIdentifier=lab-op", "/usr/local/bin/lab", "op", "run", op["id"]],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        L.op_update(op["id"], state="failed", error=f"couldn't start: {r.stderr.strip()}")
+    else:
+        L.op_update(op["id"], unit=unit)   # reap_ops() checks on it
+    log(f"started {unit} ({op['kind']} {' '.join(op['hosts'])})")
+
+
+def ad_user_exists(user):
+    """Guest owners get an AD account; the name must not belong to someone else."""
+    dc01 = L.settings()["dc01_ip"]
+    r = subprocess.run(DC01 + [f"svc-runner@{dc01}", f"sudo samba-tool user show {user}"], capture_output=True)
+    return r.returncode == 0
+
+
+# ---------------------------------------------------------------- requests from the web side
+def take_requests():
+    found = []
+    for path in sorted(L.REQUESTS.glob("*.json")):
+        req = L.read_json(path)
+        if req is None:
+            path.unlink(missing_ok=True)
+        else:
+            found.append((path, req))
+    return found
+
+
+def reject(req, why):
+    """A create request that can't be fulfilled: the owner's page shows why. Nothing
+    was created anywhere, so the record says so (rejected) and needs no clean-up."""
+    host = f"ws-{req['user']}"
+    log(f"rejected {host}: {why}")
+    L.write_json(L.guest_path(host), {
+        "host": host, "owner": req["user"], "role": req["role"], "vmid": None, "ip": "", "mac": "",
+        "token_sha256": req["token_sha256"], "state": "failed", "error": why, "rejected": True,
+        "phases": {"queued": req["time"]}})
+    (L.PASSWORDS / req["user"]).unlink(missing_ok=True)
+
+
+def create(req):
+    cfg, host = L.settings(), f"ws-{req['user']}"
+    existing = L.guests()
+    if host in existing and not existing[host].get("rejected"):
+        return                                         # already handled
+    if ad_user_exists(req["user"]):
+        return reject(req, f"an account called '{req['user']}' already exists in AD")
+    active = [r for r in existing.values() if not r.get("rejected")]
+    vmid = L.free_guest_vmid(cfg, {r["vmid"] for r in active})
+    if vmid is None or len(active) >= cfg["max_guests"]:
+        return reject(req, f"the lab is full ({cfg['max_guests']} guest workstations)")
+    L.write_json(L.guest_path(host), {
+        "host": host, "owner": req["user"], "role": req["role"], "vmid": vmid,
+        **L.address_for(vmid, cfg), "token_sha256": req["token_sha256"], "state": "building",
+        "error": None, "phases": {"queued": req["time"]}})
+    launch(L.new_op("guest-create", f"visitor {req['user']}", [host]))
+
+
+def delete_guest(host, actor):
+    r = L.read_json(L.guest_path(host))
+    if not r:
+        return
+    if r.get("rejected"):                              # nothing was ever built
+        L.guest_path(host).unlink(missing_ok=True)
+        return
+    L.update_json(L.guest_path(host), lambda x: x.update(
+        state="removing", error=None, removal={"queued": time.time()}))
+    launch(L.new_op("guest-delete", actor, [host]))
+
+
+def handle(req):
+    action = req.get("action")
+    if action == "create":
+        create(req)
+    elif action == "delete" and "token_sha256" in req:   # the owner, proven by their token
+        host = f"ws-{req['user']}"
+        r = L.read_json(L.guest_path(host)) or {}
+        if r.get("token_sha256") == req["token_sha256"]:
+            delete_guest(host, f"owner {req['user']}")
+    elif action == "delete" and req.get("admin"):        # an admin (AD ws-admins, checked by the web side)
+        actor = f"admin {req['admin']}"
+        fleet = L.fleet()
+        guests = L.guests()
+        for host in req.get("hosts", []):
+            if host in L.INFRA:
+                log(f"refused to delete {host}: not a workstation")
+            elif host in guests:
+                delete_guest(host, actor)
+        doomed = [h for h in req.get("hosts", []) if h in fleet and h not in L.INFRA]
+        if doomed:
+            launch(L.new_op("fleet-delete", actor, doomed))
+    elif action == "approve" and req.get("admin"):       # approve destroys the reconciler found
+        for host in req.get("hosts", []):
+            if host not in L.INFRA:
+                L.approve(host, f"admin {req['admin']}")
+
+
+# ---------------------------------------------------------------- what workstations report
+def follow_events():
+    """tail -F of nginx's lab-events log (JSON lines), surviving restarts: the position
+    read so far is saved, so a worker restart doesn't miss a machine's progress."""
+    pos_file = L.STATE / "events-log.position"
+    f, inode, first = None, None, True
+    while True:
+        try:
+            st = L.EVENTS_LOG.stat()
+            if f is None or st.st_ino != inode:
+                if f:
+                    f.close()
+                f, inode = open(L.EVENTS_LOG, encoding="utf-8"), st.st_ino  # noqa: SIM115 (kept open: tail -F)
+                saved = L.read_json(pos_file) if first else None
+                if first and saved and saved.get("inode") == inode and saved.get("pos", 0) <= st.st_size:
+                    f.seek(saved["pos"])            # same file as before the restart: continue
+                elif first and not saved:
+                    f.seek(0, os.SEEK_END)          # very first start: history isn't ours
+                first = False                       # (otherwise: rotated meanwhile, read it all)
+            line = f.readline()
+            if not line:
+                L.write_json(pos_file, {"inode": inode, "pos": f.tell()})
+                time.sleep(1)
+                continue
+            event = L.parse_event(line)
+            if event:
+                on_event(event)
+        except FileNotFoundError:
+            time.sleep(2)
+        except Exception as e:                      # noqa: BLE001  never let the follower die
+            log(f"event follower: {e!r}")
+            time.sleep(5)
+
+
+def on_event(e):
+    ip, uri, ok = e["ip"], e["uri"], e["status"] in (200, 204)
+    if uri == "/lab-events/configured" and ok:
+        L.update_json(L.CHECKINS, lambda c: c.update({ip: time.time()}), default={})
+    for host, r in L.guests().items():
+        # (The clone can fetch its password before OpenTofu reports "created", so only
+        # require that its identity exists.)
+        if r.get("ip") != ip or r.get("state") != "building" or "identity" not in r.get("phases", {}):
+            continue
+        if re.fullmatch(r"/otp/[^/]+", uri):
+            if ok:
+                L.guest_phase(host, "joining")
+            else:   # the machine can't join without it; say so instead of waiting
+                L.guest_phase(host, None, state="failed",
+                              error=f"the machine could not fetch its one-time join password (HTTP {e['status']})")
+        elif uri == "/lab-events/configured" and ok:
+            L.guest_phase(host, "ready", state="ready")
+
+
+# ---------------------------------------------------------------- periodic checks
+def observe():
+    """What Proxmox has, for the admin page (fleet machines have no build record)."""
+    try:
+        L.write_json(L.OBSERVED, {"time": time.time(), "vms": {str(k): v for k, v in L.Proxmox().vms().items()}})
+    except Exception as e:                              # noqa: BLE001
+        log(f"observe: {e!r}")
+
+
+def fail_stalled():
+    """A build with no new phase for STALL seconds has stopped somewhere. Say so."""
+    for host, r in L.guests().items():
+        if r.get("state") == "building" and r.get("phases"):
+            phase, since = max(r["phases"].items(), key=lambda kv: kv[1])
+            if time.time() - since > STALL:
+                L.guest_phase(host, None, state="failed", error=f"no progress for {STALL // 60} minutes after '{phase}'")
+
+
+def reap_ops():
+    """An operation still marked running whose unit is gone died without finishing
+    (crash, reboot): mark it failed so nothing waits on it forever."""
+    for op in L.ops(100):
+        unit = op.get("unit")          # only operations this worker started (not `lab` in a terminal)
+        if op["state"] != "running" or not unit:
+            continue
+        active = subprocess.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0
+        if not active and time.time() - op["created"] > 30:
+            L.op_update(op["id"], state="failed", error="the operation stopped unexpectedly (see its log)")
+            for host in op["hosts"]:
+                r = L.read_json(L.guest_path(host))
+                if r and r.get("state") in ("building", "removing"):
+                    L.guest_phase(host, None, state="failed", error="the operation stopped unexpectedly")
+
+
+def main():
+    os.umask(0o027)
+    for d in (L.GUESTS, L.OPS, L.LOGS):
+        d.mkdir(parents=True, exist_ok=True)
+    threading.Thread(target=follow_events, daemon=True).start()
+    log("lab-portal-worker started")
+    last_observe = 0
+    while True:
+        for path, req in take_requests():
+            try:
+                handle(req)
+            except Exception as e:                       # noqa: BLE001
+                log(f"request {path.name} failed: {e!r}")
+            path.unlink(missing_ok=True)
+        if time.time() - last_observe > OBSERVE_EVERY:
+            observe()
+            last_observe = time.time()
+        fail_stalled()
+        reap_ops()
+        time.sleep(2)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

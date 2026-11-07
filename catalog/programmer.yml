@@ -1,0 +1,8 @@
+# The "programmer" workstation: one entry in the lab's catalogue of workstation
+# definitions. Same shape and same readers as catalog/artist.yml (see its header).
+name: Programmer
+description: Ubuntu 26.04 with a C/C++ and Python toolchain.
+tools: [GCC, CMake, Ninja, GDB, Python venv]
+packages: [build-essential, cmake, ninja-build, gdb, python3-venv]
+login_groups: [programmers]
+size: {cores: 2, memory_mb: 3072, disk_gb: 24}
