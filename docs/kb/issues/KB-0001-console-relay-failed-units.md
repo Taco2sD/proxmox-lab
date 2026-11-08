@@ -10,7 +10,7 @@ severity: medium
 hosts: [pve01]
 components: [console-relay, guacamole, portal]
 patterns: [per-connection-unit-pileup, client-retry-loop]
-commits: []
+commits: [15f0c00]
 related: [KB-0013, KB-0007]
 ---
 ## Symptom

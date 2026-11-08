@@ -10,7 +10,7 @@ severity: medium
 hosts: [mgmt01, pve01, workstations]
 components: [blackbox, lab-metrics, console-relay, alert-rules, workstations]
 patterns: [monitoring-blind-spot]
-commits: []
+commits: [8d36926, 00fe16c]
 related: [KB-0001]
 ---
 ## Symptom

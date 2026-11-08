@@ -10,7 +10,7 @@ severity: low
 hosts: [workstations]
 components: [sssd, workstations]
 patterns: [conflicting-activation-modes]
-commits: []
+commits: [f53d992]
 related: []
 ---
 ## Symptom

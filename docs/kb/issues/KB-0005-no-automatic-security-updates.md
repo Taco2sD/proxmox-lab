@@ -10,7 +10,7 @@ severity: high
 hosts: [mgmt01, pve01, dc01, workstations]
 components: [patching, mgmt01, pve01]
 patterns: [missing-baseline]
-commits: []
+commits: [3388916]
 related: []
 ---
 ## Symptom

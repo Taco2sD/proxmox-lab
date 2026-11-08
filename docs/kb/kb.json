@@ -650,7 +650,9 @@
  },
  "issues": [
   {
-   "commits": [],
+   "commits": [
+    "15f0c00"
+   ],
    "components": [
     "console-relay",
     "guacamole",
@@ -678,7 +680,9 @@
    "title": "Failed lab-console@ units pile up on pve01 while a browser keeps reconnecting to a sleeping machine"
   },
   {
-   "commits": [],
+   "commits": [
+    "f53d992"
+   ],
    "components": [
     "sssd",
     "workstations"
@@ -701,7 +705,9 @@
    "title": "SSSD's nss, pam and pac responder sockets sat failed on every workstation"
   },
   {
-   "commits": [],
+   "commits": [
+    "17fdcc5"
+   ],
    "components": [
     "samba-ad",
     "ad-dns",
@@ -727,7 +733,9 @@
    "title": "dc01's systemd-networkd-wait-online failed at every boot (it asked a disabled systemd-resolved for DNS)"
   },
   {
-   "commits": [],
+   "commits": [
+    "350e161"
+   ],
    "components": [
     "mgmt01"
    ],
@@ -751,7 +759,9 @@
    "title": "nvmf-autoconnect failed at every boot inside mgmt01's container"
   },
   {
-   "commits": [],
+   "commits": [
+    3388916
+   ],
    "components": [
     "patching",
     "mgmt01",
@@ -778,7 +788,9 @@
    "title": "mgmt01 and pve01 had no automatic security updates; 76 were waiting on mgmt01"
   },
   {
-   "commits": [],
+   "commits": [
+    "3fce451"
+   ],
    "components": [
     "alert-rules",
     "lab-metrics",
@@ -2152,7 +2164,10 @@
    "title": "A machine started outside My lab was hibernated as idle within a minute"
   },
   {
-   "commits": [],
+   "commits": [
+    "ed082b0",
+    "00fe16c"
+   ],
    "components": [
     "backups",
     "samba-ad",
@@ -2356,7 +2371,10 @@
    "title": "local-lvm is overcommitted with autoextend off, and its metadata use isn't monitored"
   },
   {
-   "commits": [],
+   "commits": [
+    "0be641f",
+    "00fe16c"
+   ],
    "components": [
     "samba-ad",
     "alert-rules",
@@ -2413,7 +2431,10 @@
    "title": "Every lab secret is long-lived, and none has a written rotation procedure"
   },
   {
-   "commits": [],
+   "commits": [
+    "b23b349",
+    "00fe16c"
+   ],
    "components": [
     "patching",
     "ansible-pull",
@@ -2443,7 +2464,10 @@
    "title": "Ansible's apt tasks gave up after 60 s while unattended-upgrades held apt's locks (first boot, 06:00 runs, deploys)"
   },
   {
-   "commits": [],
+   "commits": [
+    "b09efe3",
+    "00fe16c"
+   ],
    "components": [
     "patching",
     "node-exporter",
@@ -2475,7 +2499,10 @@
    "title": "Security updates installed but services kept running the old code, and nothing showed it"
   },
   {
-   "commits": [],
+   "commits": [
+    "b09efe3",
+    "00fe16c"
+   ],
    "components": [
     "patching",
     "samba-ad",
@@ -2506,7 +2533,10 @@
    "title": "Ubuntu's needrestart would restart services by itself after every unattended update"
   },
   {
-   "commits": [],
+   "commits": [
+    "8d36926",
+    "00fe16c"
+   ],
    "components": [
     "blackbox",
     "lab-metrics",

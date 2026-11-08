@@ -10,7 +10,7 @@ severity: medium
 hosts: [workstations, dc01, mgmt01, pve01]
 components: [patching, ansible-pull, reconciler, golden-image]
 patterns: [lock-contention]
-commits: []
+commits: [b23b349, 00fe16c]
 related: [KB-0005]
 ---
 ## Symptom

@@ -10,7 +10,7 @@ severity: low
 hosts: [dc01]
 components: [samba-ad, alert-rules, backups, node-exporter]
 patterns: [monitoring-blind-spot]
-commits: []
+commits: [0be641f, 00fe16c]
 related: [KB-0100, KB-0029]
 ---
 ## Symptom

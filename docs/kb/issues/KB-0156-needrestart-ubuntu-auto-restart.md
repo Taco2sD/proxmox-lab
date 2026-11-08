@@ -10,7 +10,7 @@ severity: high
 hosts: [dc01, mgmt01, workstations]
 components: [patching, samba-ad, dhcp, docker]
 patterns: [default-doesnt-fit, upstream-default-changed]
-commits: []
+commits: [b09efe3, 00fe16c]
 related: [KB-0005, KB-0155]
 ---
 ## Symptom

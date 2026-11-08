@@ -10,7 +10,7 @@ severity: low
 hosts: [mgmt01]
 components: [mgmt01]
 patterns: [container-irrelevant-units]
-commits: []
+commits: [350e161]
 related: [KB-0003]
 ---
 ## Symptom

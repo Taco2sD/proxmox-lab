@@ -10,7 +10,7 @@ severity: medium
 hosts: [dc01]
 components: [samba-ad, ad-dns, dhcp]
 patterns: [implicit-dependency-on-disabled-service]
-commits: []
+commits: [17fdcc5]
 related: [KB-0004]
 ---
 ## Symptom

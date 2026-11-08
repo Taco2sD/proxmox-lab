@@ -10,7 +10,7 @@ severity: medium
 hosts: [mgmt01, pve01, dc01, workstations]
 components: [patching, node-exporter, docker, proxmox-ve]
 patterns: [patched-but-not-restarted, monitoring-blind-spot]
-commits: []
+commits: [b09efe3, 00fe16c]
 related: [KB-0005, KB-0156]
 ---
 ## Symptom

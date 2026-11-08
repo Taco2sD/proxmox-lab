@@ -10,7 +10,7 @@ severity: high
 hosts: [pve01, dc01, mgmt01]
 components: [backups, samba-ad, lab-cli, portal, proxmox-ve]
 patterns: [unwatched-safety-net, monitoring-blind-spot]
-commits: []
+commits: [ed082b0, 00fe16c]
 related: [KB-0101, KB-0103]
 ---
 ## Symptom

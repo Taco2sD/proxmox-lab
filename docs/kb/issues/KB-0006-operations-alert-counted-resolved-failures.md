@@ -10,7 +10,7 @@ severity: low
 hosts: [mgmt01]
 components: [alert-rules, lab-metrics, lab-cli]
 patterns: [alert-on-history-not-state]
-commits: []
+commits: [3fce451]
 related: [KB-0007]
 ---
 ## Symptom
