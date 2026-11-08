@@ -9,6 +9,20 @@
 #   2. run ansible-pull once: base, AD join with that password, and the role AD assigns
 #      (ansible/local.yml). From then on its own timer runs it every 30 minutes.
 set -eu
+
+# Enroll first, patch right after. The image carries its builder's apt timer stamps, so
+# a clone booted a day or more after the image was built runs apt's missed daily jobs
+# (Persistent=true): unattended-upgrade within the first hour, installing everything
+# released since the image. That holds apt's locks for minutes, and the ansible-pull
+# below would wait for them (or fail, before ansible/local.yml's lock_timeout).
+# Holding the two timers for the few minutes of enrollment avoids the contention; when
+# they start again on the way out, the missed runs are caught up as usual (random delay
+# included), so the new machine still gets its security updates within the hour.
+# A run already in progress is left alone: ansible-pull's apt tasks wait for it.
+# docs/kb/issues/KB-0150-apt-lock-contention-first-boot.md
+systemctl stop apt-daily.timer apt-daily-upgrade.timer || true
+trap 'systemctl start apt-daily.timer apt-daily-upgrade.timer || true' EXIT
+
 host="$(hostname -s)"
 url="https://{{ lab_fqdn }}/otp/$host"
 
