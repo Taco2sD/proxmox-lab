@@ -58,6 +58,13 @@ td.mono { font-size:.9rem; }
 .doomed { list-style:none; margin:0 0 14px; padding:0; border:1px solid var(--line); border-radius:10px; max-height:220px; overflow-y:auto; }
 .doomed li { display:flex; justify-content:space-between; gap:12px; padding:8px 12px; border-bottom:1px solid var(--line); font-size:.9rem; }
 .doomed li:last-child { border-bottom:0; }
+/* every page of the lab, top left, each opening in its own tab (PAGES below) */
+.pages { display:flex; flex-wrap:wrap; gap:6px 18px; margin-bottom:20px; }
+.pages .group { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.pages .label { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600; margin-right:2px; }
+.pages a { font-size:.85rem; font-weight:600; padding:4px 10px; border-radius:8px; border:1px solid var(--line);
+           background:var(--card); color:var(--text); text-decoration:none; }
+.pages a:hover { border-color:var(--accent); color:var(--accent); }
 dialog ul.what { margin:6px 0 14px; padding-left:20px; color:var(--muted); font-size:.9rem; }
 .activity td { font-size:.875rem; }
 </style>
@@ -200,6 +207,22 @@ function lastActivity(m) {
   return "–";
 }
 
+// Every page of the lab, so a demo doesn't depend on remembering URLs. Each opens in its
+// own tab. The Proxmox UI has its own name beside the lab's (vps/README.md: pve.<domain>).
+const PVE = `https://${location.hostname.replace(/^[^.]+/, "pve")}/`;
+const KB = "https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb";
+const PAGES = [
+  ["People", [["Portal", "/"], ["My lab", "/my"], ["Welcome", "/welcome"], ["Mailbox", "/mail"]]],
+  ["Machines", [["Guacamole", "/guacamole/"], ["Proxmox", PVE]]],
+  ["Monitoring", [["Lab overview", "/grafana/d/lab-overview/lab-overview"], ["Machine", "/grafana/d/lab-machine/machine"],
+                  ["Alerts", "/prometheus/alerts"], ["Targets", "/prometheus/targets"], ["Query", "/prometheus/query"]]],
+  ["Docs", [["Knowledge base", `${KB}/INDEX.md`], ["Runbooks", `${KB}/runbooks`],
+            ["Repository", "https://github.com/Taco2sD/proxmox-lab"]]],
+];
+const pagesNav = () => el("nav", { class: "pages", "aria-label": "Lab pages" },
+  PAGES.map(([label, links]) => el("div", { class: "group" }, el("span", { class: "label" }, label),
+    links.map(([text, href]) => el("a", { href, target: "_blank", rel: "noopener" }, text)))));
+
 function render() {
   const focused = document.activeElement?.dataset?.host;      // keep keyboard focus across refreshes
   const pickable = machines.filter(selectable);
@@ -229,13 +252,11 @@ function render() {
                              onchange: e => { for (const m of pickable) e.target.checked ? selected.add(m.host) : selected.delete(m.host); render(); } });
   const n = selected.size;
   $("#app").replaceChildren(
+    pagesNav(),
     el("header", {},
       el("div", {}, el("h1", {}, "Workstations"),
         el("div", { class: "muted small" }, `${plural(machines.length, "machine")} · signed in as ${me}` + (busy ? " · updating live" : ""))),
       el("div", { style: "display:flex;gap:8px" },
-        el("a", { href: "/", class: "muted small", style: "align-self:center;margin-right:8px" }, "Portal"),
-        // Grafana's Lab overview (roles/monitoring), in its own tab
-        el("button", { class: "primary", onclick: () => window.open("/grafana/d/lab-overview/lab-overview", "_blank", "noopener") }, "Monitoring"),
         el("button", { class: "ghost", onclick: async () => { await api("/api/admin/logout", { body: {}, admin: true }); showLogin(); } }, "Sign out"))),
     pending.length ? el("div", { class: "notice warn", role: "alert" },
       el("span", {}, `A change on the release branch removes ${list(pending)}. Destroying a VM needs an admin's approval.`),
