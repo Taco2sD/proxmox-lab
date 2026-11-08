@@ -1299,7 +1299,7 @@
    "gridPos": {
     "x": 0,
     "y": 28,
-    "w": 12,
+    "w": 8,
     "h": 7
    },
    "targets": [
@@ -1360,6 +1360,73 @@
   },
   {
    "id": 19,
+   "type": "table",
+   "title": "Needs a restart",
+   "description": "Services still running code an update replaced: installed, not yet in effect (needrestart, list mode; roles/patching). The ServicesNeedRestart runbook says what restarting each one interrupts.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 28,
+    "w": 6,
+    "h": 7
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "needrestart_service{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "Nothing to restart"
+    },
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "filterFieldsByName",
+     "options": {
+      "include": {
+       "names": [
+        "unit"
+       ]
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "unit": "Service"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 20,
    "type": "timeseries",
    "title": "Proxmox's view of this VM",
    "description": "The same machine from the hypervisor's side (pve-exporter). Inside and outside should agree; when the guest is down this still shows whether the VM is spinning.",
@@ -1368,9 +1435,9 @@
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 12,
+    "x": 14,
     "y": 28,
-    "w": 12,
+    "w": 10,
     "h": 7
    },
    "targets": [

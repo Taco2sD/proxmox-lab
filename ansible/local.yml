@@ -1,14 +1,22 @@
 # What every workstation applies to itself. ansible-pull runs it from the workstation's
 # own checkout of the release branch: on first boot (lab-firstboot, baked into the
 # golden image by roles/pxe) and every 30 minutes after (roles/base: ansible-pull.timer).
+#
+# Every apt task here waits up to 10 minutes for apt's locks (module_defaults below;
+# Ansible's own default is 60 s): unattended-upgrades holds them while it installs, on a
+# clone's first boot as well as around 06:00, and a run that gives up after a minute
+# fails the whole configuration run (docs/kb/issues/KB-0150-apt-lock-contention-first-boot.md).
 - name: Configure this workstation
   hosts: localhost
   connection: local
+  module_defaults:
+    ansible.builtin.apt:
+      lock_timeout: 600   # see the note at the top
   roles:
+    - patching       # first: needrestart lists, never restarts, before any apt run; then daily security updates
     - base       # tools, time from the DC, the ansible-pull timer
     - ad_join    # join AD once; ask AD for this machine's roles and owner; who may log in
     - node_exporter  # metrics for Prometheus on mgmt01 (roles/monitoring)
-    - patching   # security updates every day, no automatic reboots
   tasks:
     # ad_join sets ad_groups: the AD groups this computer account belongs to. Each
     # "role-<name>" group means catalog/<name>.yml applies here.

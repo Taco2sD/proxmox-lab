@@ -4,30 +4,45 @@
 #
 # Per-workstation things (AD accounts, DHCP reservations, join passwords) are
 # ansible/identity.yml's job; the workstations' own configuration is ansible/local.yml.
+#
+# Every apt task in these plays waits up to 10 minutes for apt's locks (module_defaults
+# below; Ansible's own default is 60 s). unattended-upgrades (roles/patching) holds them
+# while it installs, around 06:00 and on a machine's first day; a deploy that gives up
+# after a minute would fail for nothing (docs/kb/issues/KB-0150-apt-lock-contention-first-boot.md).
 
 - name: Domain controller (dc01) - DNS names, DHCP, LDAPS, teams
   hosts: dc01
+  module_defaults:
+    ansible.builtin.apt:
+      lock_timeout: 600   # see the note at the top
   roles:
+    - patching       # first: needrestart lists, never restarts, before any apt run; then daily security updates
     - node_exporter  # metrics for Prometheus (roles/monitoring)
-    - patching       # security updates every day, no automatic reboots
     - lab_dns        # AD DNS zones for the public names, so lab machines reach lab hosts
     - dhcp_server    # dnsmasq: base config, per-host reservations directory, DNS hook
     - samba_ldaps    # Let's Encrypt certificate for LDAPS (the admin page signs in over it)
+    - samba_health   # daily read-only samba-tool dbcheck, as metrics
     - ad_people      # team security groups; the people helper (lab-people)
 
 - name: Hypervisor (pve01) - portal relay and backups
   hosts: pve01
+  module_defaults:
+    ansible.builtin.apt:
+      lock_timeout: 600   # see the note at the top
   roles:
+    - patching       # first: needrestart lists only; then Debian security updates daily (never Proxmox's own)
     - node_exporter  # metrics for Prometheus (roles/monitoring)
-    - patching       # Debian security updates every day (never Proxmox's own), no reboots
     - portal_relay   # tunnel -> mgmt01:8443, and the tunnel's firewall
     - pve_backups    # nightly backups of dc01 and mgmt01
 
 - name: Runner (mgmt01) - lab, web, PXE, portal, monitoring
   hosts: mgmt01
+  module_defaults:
+    ansible.builtin.apt:
+      lock_timeout: 600   # see the note at the top
   roles:
+    - patching       # first: needrestart lists, never restarts, before any apt run; then daily security updates
     - node_exporter  # metrics for Prometheus (roles/monitoring)
-    - patching       # security updates every day, no automatic reboots
     - runner         # lab, lablib, state directories, the reconciler timer
     - lab_web        # nginx: HTTPS sites, certificate, lab-events log, join-password rules
     - pxe            # TFTP boot menu, the image builder's install record, ISO over HTTP
@@ -38,6 +53,9 @@
 # Last: it writes into mgmt01's portal directory, which the play above creates
 - name: Tokens for mgmt01's services (made on pve01, handed to mgmt01)
   hosts: pve01
+  module_defaults:
+    ansible.builtin.apt:
+      lock_timeout: 600   # see the note at the top
   roles:
     - pve_console    # API token for the portal: VM consoles only (My lab's Desktop)
     - pve_monitoring # read-only API token for Prometheus; the tunnel's metrics

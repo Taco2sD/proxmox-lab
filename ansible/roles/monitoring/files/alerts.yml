@@ -33,7 +33,9 @@ groups:
             on the machine.
 
       - alert: ServiceProbeFailed
-        expr: probe_success == 0
+        # The lab's fixed services (prometheus.yml: job "probes"). Per-workstation access
+        # paths have their own rule below: those come and go with the machines.
+        expr: probe_success{job="probes"} == 0
         for: 2m
         labels:
           severity: critical
@@ -43,6 +45,25 @@ groups:
           description: >-
             blackbox can't reach {{ $labels.instance }} ({{ $labels.module }}). Try it by hand:
             https://lab.radicallydecent.com/prometheus/ → probe_success, or curl from mgmt01.
+
+      - alert: AccessPathDown
+        # A workstation is up (its node_exporter answers) but people can't get in: SSH (and
+        # so the browser terminal) or, on desktops, the Desktop button's path through pve01's
+        # console relay (job probes-access, targets from lab-metrics). A machine that is down
+        # altogether is TargetDown's alert; one being hibernated or rebooted drops out of the
+        # list or comes back within the 3 minutes.
+        expr: |
+          probe_success{job="probes-access"} == 0
+            and on (host) up{job="workstations"} == 1
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/AccessPathDown.md
+          summary: "{{ $labels.probe }} to {{ $labels.host }} isn't working, though the machine is up"
+          description: >-
+            blackbox gets no {{ $labels.probe }} banner from {{ $labels.instance }}. SSH: `systemctl status ssh` on
+            {{ $labels.host }}. Desktop console: `journalctl -u 'lab-console@*' -n 20` on pve01.
 
       - alert: SystemdUnitsFailed
         # One alert per machine, not per unit: a template unit that fails per connection
@@ -174,6 +195,22 @@ groups:
           summary: "{{ $labels.host }} has needed a reboot for a day (updated kernel or libraries)"
           description: "Reboot it in a quiet moment (staff machines: hibernate doesn't count)."
 
+      - alert: ServicesNeedRestart
+        # A security update is only in effect once the processes using the old code
+        # restart. needrestart lists them (roles/patching: lab-restart-metrics, list mode:
+        # it never restarts anything itself). A day's grace: restarts are planned, and the
+        # list is often empty again after the next reboot or service update.
+        expr: (needrestart_services + needrestart_containers) > 0
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/ServicesNeedRestart.md
+          summary: "{{ $labels.host }} has had {{ $value }} service(s) running replaced code for a day"
+          description: >-
+            Updated libraries aren't in effect until these restart. `needrestart -b -r l` on {{ $labels.host }} lists
+            them; the Machine dashboard shows them too.
+
   - name: lab automation
     rules:
       - alert: WorkstationNotCheckingIn
@@ -268,3 +305,49 @@ groups:
           runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/TunnelDown.md
           summary: "The WireGuard tunnel to the VPS has been quiet for {{ $value | humanizeDuration }}"
           description: "lab.radicallydecent.com is unreachable from the internet. `wg show` on pve01; is the VPS up?"
+
+  - name: recovery
+    rules:
+      - alert: BackupMissing
+        # The nightly vzdump job (roles/pve_backups, 03:30) covers dc01 and mgmt01: the two
+        # servers git can't rebuild. lab-backup-metrics on pve01 reports each covered guest's
+        # newest archive. Fires when one is over 26 hours old or has none at all, or when the
+        # collector itself stopped (its file would keep reporting old values).
+        # docs/kb/issues/KB-0100-servers-never-backed-up.md
+        expr: |
+          (lab_backup_expected == 1
+            unless on (vmid) (time() - lab_backup_last_timestamp_seconds < 26 * 3600))
+          or
+          (time() - lab_backup_metrics_last_run_timestamp_seconds > 3600)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/BackupMissing.md
+          summary: >-
+            {{ if $labels.guest }}No backup of {{ $labels.guest }} (VM {{ $labels.vmid }}) in the last 26 hours{{ else
+            }}Backup metrics on pve01 are stale: lab-backup-metrics hasn't run for over an hour{{ end }}
+          description: >-
+            `pvesh get /nodes/pve01/tasks --typefilter vzdump --limit 5` and the vzdump log in /var/lib/vz/dump on pve01.
+            A backup by hand: `vzdump 105 106 --storage local --mode snapshot --compress zstd`.
+
+  - name: directory
+    rules:
+      - alert: SambaDatabaseErrors
+        # Samba's own check of the AD database, read-only, daily on dc01 (roles/samba_health:
+        # lab-samba-dbcheck). Real errors only: stale links (inactive member links to
+        # workstations deleted since, kept by Samba for 180 days) are counted separately and
+        # don't fire. Also fires when the check stopped producing results.
+        # docs/kb/issues/KB-0107-ad-database-health-unwatched.md
+        expr: |
+          lab_samba_dbcheck_problems{kind="error"} > 0
+          or (lab_samba_dbcheck_success == 0)
+          or (time() - lab_samba_dbcheck_last_run_timestamp_seconds > 2 * 86400)
+        labels:
+          severity: warning
+        annotations:
+          runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/SambaDatabaseErrors.md
+          summary: "dc01's AD database check found problems, or hasn't run for two days"
+          description: >-
+            `sudo samba-tool dbcheck --cross-ncs` on dc01 (read-only) shows them. Back up dc01 before
+            `--fix` (it's the only domain controller).
