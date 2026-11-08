@@ -79,7 +79,9 @@
   ansible.builtin.command: /etc/ansible/facts.d/ad.fact
   register: ad_lookup
   changed_when: false
-  failed_when: false  # e.g. a --check run on a not-yet-joined machine: no script yet
+  # 3: joined but AD unreachable (ad.fact). Anything else, e.g. a --check run on a
+  # not-yet-joined machine with no script yet, falls back to an empty answer.
+  failed_when: ad_lookup.rc == 3
   check_mode: false   # read-only
 
 - name: Remember the answer for the rest of the play (role selection in local.yml)

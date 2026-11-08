@@ -397,7 +397,7 @@ def render_page(page="portal.html"):
     config = {"roles": roles, "teams": teams, "phases": [p[:2] for p in L.PHASES],
               "titles": dict(sorted(L.known_titles(L.teams(), L.people()).items())),
               "limits": L.settings()["staff_limits"], "idle_minutes": L.settings()["idle_hibernate_minutes"]}
-    return (HERE / page).read_text(encoding="utf-8").replace("__CONFIG__", json.dumps(config))
+    return (HERE / page).read_text(encoding="utf-8").replace("__CONFIG__", json.dumps(config).replace("<", "\u003c"))
 
 
 STATIC = {"/static/common.css": "text/css", "/static/common.js": "text/javascript"}
@@ -684,6 +684,8 @@ class Handler(BaseHTTPRequestHandler):
                                                  L.known_titles(L.teams(), L.people()))
             if problems:
                 return self.send(400, {"error": " ".join(problems)})
+            if L.teams().get(person.get("team"), {}).get("admin"):   # admin rights only through IT's invite
+                return self.send(403, {"error": "IT accounts are set up by the IT team."})
             del person["username"]                     # the account's name travels separately
             names = (person["given"], person["surname"])
         if role not in L.catalog():

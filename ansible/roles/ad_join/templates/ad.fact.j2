@@ -13,7 +13,10 @@ me="$(hostname -s | tr '[:lower:]' '[:upper:]')\$"
 cc="$(mktemp)"
 trap 'rm -f "$cc"' EXIT
 
+# Exit 3: joined, but AD didn't answer. The play fails rather than apply an empty
+# answer, which would leave only ws-admins allowed to log in until the next run.
 if ! kinit -k -c "FILE:$cc" "$me" >/dev/null 2>&1; then
+  [ -s /etc/krb5.keytab ] && exit 3
   echo '{"joined": false, "groups": [], "owner": ""}'
   exit 0
 fi
@@ -23,7 +26,8 @@ q() {
   KRB5CCNAME="FILE:$cc" ldapsearch -N -Q -LLL -o ldif-wrap=no -Y GSSAPI \
     -H "ldap://{{ ad_dc }}" "$@" 2>/dev/null
 }
-mine="$(q -b "{{ ad_base_dn }}" "(sAMAccountName=$me)" memberOf managedBy)"
+mine="$(q -b "{{ ad_base_dn }}" "(sAMAccountName=$me)" memberOf managedBy)" || exit 3
+[ -n "$mine" ] || exit 3
 groups="$(printf '%s\n' "$mine" | sed -n 's/^memberOf: CN=\([^,]*\),.*/\1/p')"
 
 # managedBy holds a DN; the owner's login name is that account's sAMAccountName

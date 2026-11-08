@@ -10,7 +10,7 @@ hosts: [pve01, mgmt01]
 components: [opentofu, portal, guacamole, console-relay, pve-exporter, lab-cli]
 patterns: [hand-made-state]
 commits: []
-related: [KB-0102]
+related: []
 ---
 ## Symptom
 

@@ -218,7 +218,7 @@ def fleet_apply(op, interactive, replace=()):
         return True
     for host, what in sorted(changes.items()):
         op.say(f"  {what:8} {host}")
-    destroys = sorted(h for h, what in changes.items() if what == "delete")
+    destroys = sorted(h for h, what in changes.items() if what in ("delete", "replace"))
     approved = L.approvals()
     if interactive:
         confirm("destroy " + " ".join(destroys) if destroys else "apply")

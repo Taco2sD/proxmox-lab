@@ -2253,34 +2253,6 @@
   {
    "commits": [],
    "components": [
-    "proxmox-ve",
-    "workstations",
-    "portal",
-    "samba-ad",
-    "node-exporter"
-   ],
-   "found": "2026-11-07",
-   "found_by": "review",
-   "hosts": [
-    "workstations",
-    "pve01",
-    "dc01",
-    "mgmt01"
-   ],
-   "id": "KB-0102",
-   "path": "docs/kb/issues/KB-0102-visitor-machines-reach-management-plane.md",
-   "patterns": [
-    "flat-network-trust"
-   ],
-   "related": [],
-   "severity": "high",
-   "signal": "pre-mortem: TCP connects from ws35 to 10.10.10.10:22 and :8006; sshd -T on pve01",
-   "status": "accepted",
-   "title": "Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI"
-  },
-  {
-   "commits": [],
-   "components": [
     "windows-host",
     "proxmox-ve",
     "time-sync"
@@ -2446,9 +2418,7 @@
    "patterns": [
     "hand-made-state"
    ],
-   "related": [
-    "KB-0102"
-   ],
+   "related": [],
    "severity": "low",
    "signal": "pre-mortem: pveum user token list (expire 0); docs/operations.md Secrets table",
    "status": "open",
@@ -2743,18 +2713,6 @@
   },
   {
    "components": [
-    "workstations",
-    "proxmox-ve",
-    "samba-ad",
-    "mgmt01",
-    "portal"
-   ],
-   "path": "docs/kb/patterns/flat-network-trust.md",
-   "pattern": "flat-network-trust",
-   "title": "Machines that untrusted people use share a network with the management plane"
-  },
-  {
-   "components": [
     "lab-cli",
     "reconciler"
    ],
@@ -3036,28 +2994,6 @@
    "plan": "PLAN-0004",
    "status": "proposed",
    "title": "Bring hand-made infrastructure state and secret rotation into git"
-  },
-  {
-   "components": [
-    "workstations",
-    "proxmox-ve",
-    "samba-ad",
-    "mgmt01",
-    "opentofu",
-    "portal"
-   ],
-   "created": "2026-11-07",
-   "issues": [
-    "KB-0102"
-   ],
-   "owner": "unassigned",
-   "path": "docs/kb/plans/PLAN-0005-separate-visitors-from-management.md",
-   "patterns": [
-    "flat-network-trust"
-   ],
-   "plan": "PLAN-0005",
-   "status": "proposed",
-   "title": "Separate visitors' workstations from the management plane"
   }
  ],
  "runbooks": [
