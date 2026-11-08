@@ -1,0 +1,33 @@
+# dc01: the AD database's own health, as metrics. Samba's `samba-tool dbcheck` (read-only,
+# daily) runs through files/lab-samba-dbcheck, which writes node_exporter textfile metrics
+# (lab_samba_dbcheck_*). dc01 is the lab's only domain controller, so a broken database
+# is every sign-in, DNS name and DHCP registration at once; the probes only show that its
+# protocols answer. Part of ansible/site.yml, after roles/node_exporter (textfile
+# directory). docs/kb/issues/KB-0107-ad-database-health-unwatched.md has why.
+
+- name: The dbcheck metrics script
+  ansible.builtin.copy:
+    src: lab-samba-dbcheck
+    dest: /usr/local/libexec/lab-samba-dbcheck
+    mode: "0755"
+
+- name: Units for the daily dbcheck
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-samba-dbcheck.service, lab-samba-dbcheck.timer]
+  register: dbcheck_units
+
+- name: Run dbcheck every day
+  ansible.builtin.systemd_service:
+    name: lab-samba-dbcheck.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ dbcheck_units.changed }}"
+
+# The first metrics now, not at 04:30 tomorrow
+- name: Metrics present
+  ansible.builtin.command: /usr/local/libexec/lab-samba-dbcheck
+  args:
+    creates: /var/lib/prometheus/node-exporter/samba_dbcheck.prom

@@ -1,0 +1,10 @@
+# /etc/systemd/system/lab-samba-dbcheck.service on dc01 (roles/samba_health): see
+# /usr/local/libexec/lab-samba-dbcheck
+[Unit]
+Description=Samba AD database check (read-only) for node_exporter
+After=samba-ad-dc.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/lab-samba-dbcheck
+IOSchedulingClass=idle

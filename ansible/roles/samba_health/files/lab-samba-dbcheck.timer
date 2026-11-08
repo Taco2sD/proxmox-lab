@@ -1,0 +1,12 @@
+# /etc/systemd/system/lab-samba-dbcheck.timer on dc01 (roles/samba_health): daily, after
+# the nightly backup (roles/pve_backups, 03:30), and once shortly after boot
+[Unit]
+Description=Samba AD database check every day
+
+[Timer]
+OnCalendar=*-*-* 04:30
+OnBootSec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

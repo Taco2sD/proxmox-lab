@@ -1,0 +1,45 @@
+#!/bin/sh
+# /usr/local/libexec/lab-samba-dbcheck on dc01 (roles/samba_health), run daily by
+# lab-samba-dbcheck.timer: Samba's own consistency check of the AD database, read-only
+# (no --fix), as metrics for node_exporter's textfile collector. The probes
+# (roles/monitoring) show that LDAPS, Kerberos and DNS answer; this shows whether the
+# database behind them is sound. About 3 seconds for the lab's ~4,000 objects.
+#
+# dbcheck reports two kinds of problem, counted separately:
+#   error       "ERROR: ..." lines: a real inconsistency, alert on it
+#   stale_link  "WARNING: target DN is deleted": a group's (inactive) member link to a
+#               computer that was deleted afterwards. Samba keeps these for linked-value
+#               replication until the tombstone lifetime (180 days) runs out; dbcheck
+#               counts them, but they're harmless. Each deleted workstation leaves one
+#               (docs/kb/issues/KB-0107-ad-database-health-unwatched.md).
+# `samba-tool dbcheck --cross-ncs --fix --yes` clears both, after a backup of dc01.
+set -u
+dir=/var/lib/prometheus/node-exporter
+out=$(mktemp)
+trap 'rm -f "$out"' EXIT
+# dbcheck exits 1 when it finds anything; whether it ran at all is the "Checked" line
+nice -n 10 samba-tool dbcheck --cross-ncs >"$out" 2>&1
+objects=$(sed -n 's/^Checked \([0-9]*\) objects.*/\1/p' "$out" | tail -n 1)
+ok=1
+[ -n "$objects" ] || { ok=0; objects=0; }
+errors=$(grep -c '^ERROR' "$out")
+stale=$(grep -c '^WARNING: target DN is deleted' "$out")
+tmp=$(mktemp "$dir/.samba_dbcheck.XXXXXX")
+cat >"$tmp" <<EOF
+# HELP lab_samba_dbcheck_problems Problems samba-tool dbcheck reported in the AD database, by kind (error: real inconsistency; stale_link: inactive link to a deleted object).
+# TYPE lab_samba_dbcheck_problems gauge
+lab_samba_dbcheck_problems{kind="error"} $errors
+lab_samba_dbcheck_problems{kind="stale_link"} $stale
+# HELP lab_samba_dbcheck_objects Objects samba-tool dbcheck checked.
+# TYPE lab_samba_dbcheck_objects gauge
+lab_samba_dbcheck_objects $objects
+# HELP lab_samba_dbcheck_success 1 if samba-tool dbcheck ran to the end.
+# TYPE lab_samba_dbcheck_success gauge
+lab_samba_dbcheck_success $ok
+# HELP lab_samba_dbcheck_last_run_timestamp_seconds When samba-tool dbcheck last ran.
+# TYPE lab_samba_dbcheck_last_run_timestamp_seconds gauge
+lab_samba_dbcheck_last_run_timestamp_seconds $(date +%s)
+EOF
+chmod 644 "$tmp"
+# Renamed into place: node_exporter never reads half a file
+mv "$tmp" "$dir/samba_dbcheck.prom"
