@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""/usr/local/libexec/lab-guest-metrics on pve01 (roles/pve_monitoring), run every 30 s by
+lab-guest-metrics.timer: what each Proxmox guest is and the limits the host enforces on
+it, as metrics for node_exporter's textfile collector (lab-guests.prom). The Machine
+dashboard shows them (roles/monitoring: "What it is", "Limits").
+
+Why from pve01: a guest can't reliably see its own kind or limits. A container shares
+pve01's kernel and even reads pve01's DMI data (mgmt01's node_exporter reports
+"Microsoft Corporation Virtual Machine", which is pve01's Hyper-V), and its limits are set
+on its parent cgroup, above what it can see. Here, both are plain files:
+  /etc/pve/{lxc,qemu-server}/<vmid>.conf     what was asked for (cores, memory, swap,
+                                             cpuunits, cpulimit, unprivileged, features)
+  /sys/fs/cgroup/lxc/<vmid>/                 a container's cgroup (cgroup v2)
+  /sys/fs/cgroup/qemu.slice/<vmid>.scope/    a VM's QEMU process's cgroup
+Every series carries guest (the name, which is the machine's host label elsewhere), vmid
+and type (lxc or qemu). In the cgroup values, 0 means "no limit" (the file says max).
+"""
+import os
+import re
+from pathlib import Path
+
+OUT = Path("/var/lib/prometheus/node-exporter/lab-guests.prom")
+CG = Path("/sys/fs/cgroup")
+KINDS = {"lxc": (Path("/etc/pve/lxc"), lambda v: CG / "lxc" / v),
+         "qemu": (Path("/etc/pve/qemu-server"), lambda v: CG / "qemu.slice" / f"{v}.scope")}
+MIB = 1024 * 1024
+
+
+def read(path):
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def config(path):
+    """The guest's own settings: the part of the file before the first [snapshot]."""
+    out = {}
+    for line in (read(path) or "").splitlines():
+        if line.startswith("["):
+            break
+        if ":" in line and not line.startswith("#"):
+            k, v = line.split(":", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def limit(text, scale=1):
+    """A cgroup limit file: 'max' is no limit (0 here)."""
+    if text is None:
+        return None
+    return 0 if text.split()[0] == "max" else int(text.split()[0]) * scale
+
+
+def keyed(text):
+    """cpu.stat, memory.events: 'key value' lines."""
+    return {k: int(v) for k, v in (line.split() for line in (text or "").splitlines() if len(line.split()) == 2)}
+
+
+def cpus(text):
+    """cpuset.cpus.effective, e.g. 0-1,4: how many CPUs."""
+    n = 0
+    for part in (text or "").split(","):
+        if "-" in part:
+            a, b = part.split("-")
+            n += int(b) - int(a) + 1
+        elif part:
+            n += 1
+    return n
+
+
+def isolation(kind, cfg):
+    if kind == "lxc":
+        feats = [f.split("=")[0] for f in cfg.get("features", "").split(",") if f.endswith("=1")]
+        return ("Unprivileged" if cfg.get("unprivileged") == "1" else "Privileged") + \
+            " container, shares pve01's kernel" + (f" ({', '.join(feats)})" if feats else "")
+    return f"Full VM with its own kernel (KVM, CPU type {cfg.get('cpu', 'kvm64').split(',')[0]})"
+
+
+class Out:
+    def __init__(self):
+        self.metrics = {}
+
+    def add(self, name, help_text, labels, value, kind="gauge"):
+        if value is None:
+            return
+        m = self.metrics.setdefault(name, (help_text, kind, []))
+        esc = lambda v: str(v).replace("\\", "\\\\").replace('"', '\\"')  # noqa: E731
+        m[2].append("{" + ",".join(f'{k}="{esc(v)}"' for k, v in labels.items()) + f"}} {value}")
+
+    def text(self):
+        out = []
+        for name, (h, kind, samples) in self.metrics.items():
+            out += [f"# HELP {name} {h}", f"# TYPE {name} {kind}"] + [name + s for s in samples]
+        return "\n".join(out) + "\n"
+
+
+def main():
+    o = Out()
+    for kind, (confdir, cgdir) in KINDS.items():
+        for conf in sorted(confdir.glob("*.conf")):
+            vmid = conf.stem
+            cfg = config(conf)
+            if cfg.get("template") == "1":
+                continue                                  # golden images: never run
+            name = cfg.get("hostname" if kind == "lxc" else "name", vmid)
+            L = {"guest": name, "vmid": vmid, "type": kind}
+            o.add("lab_guest_config_info", "Each guest as Proxmox defines it (value always 1).",
+                  {**L, "isolation": isolation(kind, cfg), "unprivileged": cfg.get("unprivileged", ""),
+                   "features": cfg.get("features", ""), "ostype": cfg.get("ostype", "")}, 1)
+            o.add("lab_guest_id", "The guest's Proxmox ID (VMID) as a value, for showing it.", L, int(vmid))
+            sockets = int(cfg.get("sockets", 1))
+            o.add("lab_guest_config_cores", "CPU cores the guest is given.", L, int(cfg.get("cores", 1)) * sockets)
+            o.add("lab_guest_config_memory_bytes", "Memory the guest is given.", L, int(cfg.get("memory", 512)) * MIB)
+            if kind == "lxc":
+                o.add("lab_guest_config_swap_bytes", "Swap a container may use.", L, int(cfg.get("swap", 512)) * MIB)
+            o.add("lab_guest_config_cpu_units", "CPU weight under contention (cpuunits; 100 is the default).",
+                  L, int(cfg.get("cpuunits", 100)))
+            o.add("lab_guest_config_cpu_limit_cores", "Hard CPU cap in cores (cpulimit; 0: none).",
+                  L, float(cfg.get("cpulimit", 0)))
+
+            d = cgdir(vmid)
+            if not d.is_dir():                            # not running: no cgroup
+                continue
+            o.add("lab_guest_running", "1 while the guest has a cgroup on pve01 (it is running).", L, 1)
+            cpu_max = read(d / "cpu.max")
+            if cpu_max:
+                quota, period = cpu_max.split()
+                o.add("lab_guest_cgroup_cpu_max_cores", "cpu.max as cores (0: no cap).", L,
+                      0 if quota == "max" else int(quota) / int(period))
+            o.add("lab_guest_cgroup_cpu_weight", "cpu.weight: the guest's share of CPU when CPUs are contended "
+                  "(100 default; twice the weight, twice the share).", L, limit(read(d / "cpu.weight")))
+            o.add("lab_guest_cgroup_cpuset_cpus", "CPUs the guest's processes may run on (cpuset.cpus.effective).",
+                  L, cpus(read(d / "cpuset.cpus.effective")) or None)
+            for f, metric, h in (("memory.max", "memory_max_bytes", "memory.max: hard memory limit, OOM kill above it (0: none)."),
+                                 ("memory.high", "memory_high_bytes", "memory.high: reclaim and throttle above it (0: none)."),
+                                 ("memory.current", "memory_current_bytes", "memory.current: memory in use, page cache included."),
+                                 ("memory.peak", "memory_peak_bytes", "memory.peak: the most it has used."),
+                                 ("memory.swap.max", "swap_max_bytes", "memory.swap.max: swap limit (0: none)."),
+                                 ("memory.swap.current", "swap_current_bytes", "memory.swap.current: swap in use."),
+                                 ("pids.max", "pids_max", "pids.max: process and thread limit (0: none)."),
+                                 ("pids.current", "pids_current", "pids.current: processes and threads.")):
+                o.add(f"lab_guest_cgroup_{metric}", h, L, limit(read(d / f)))
+            st = keyed(read(d / "cpu.stat"))
+            o.add("lab_guest_cgroup_cpu_usage_seconds_total", "CPU time used.", L,
+                  st.get("usage_usec", 0) / 1e6, "counter")
+            o.add("lab_guest_cgroup_cpu_throttled_seconds_total", "Time held back by cpu.max.", L,
+                  st.get("throttled_usec", 0) / 1e6, "counter")
+            ev = keyed(read(d / "memory.events"))
+            for e in ("high", "max", "oom", "oom_kill"):
+                o.add("lab_guest_cgroup_memory_events_total", "memory.events: times it hit memory.high (high), "
+                      "memory.max (max), and OOM kills.", {**L, "event": e}, ev.get(e, 0), "counter")
+            for res in ("cpu", "memory", "io"):
+                for line in (read(d / f"{res}.pressure") or "").splitlines():
+                    kind_ = line.split()[0]
+                    total = re.search(r"total=(\d+)", line)
+                    if total:
+                        o.add("lab_guest_cgroup_pressure_seconds_total", "Pressure stall time: some = at least one "
+                              "task waited on the resource, full = all did.",
+                              {**L, "resource": res, "kind": kind_}, int(total.group(1)) / 1e6, "counter")
+    tmp = OUT.with_name(f".{OUT.name}.tmp")
+    tmp.write_text(o.text())
+    os.chmod(tmp, 0o644)
+    tmp.replace(OUT)                                      # node_exporter never reads half a file
+
+
+if __name__ == "__main__":
+    main()

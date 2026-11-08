@@ -1,0 +1,6 @@
+# /etc/systemd/system/lab-guest-metrics.service on pve01 (roles/pve_monitoring)
+[Unit]
+Description=Guest kind and cgroup limit metrics for node_exporter
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/lab-guest-metrics

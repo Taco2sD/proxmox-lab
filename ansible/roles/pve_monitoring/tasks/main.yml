@@ -11,6 +11,8 @@
 # 2. The WireGuard tunnel's last handshake as a metric (lab-wg-metrics), because the
 #    tunnel is the only way in from the internet (roles/portal_relay): if the VPS stops
 #    answering, the dashboards show the tunnel going quiet before anyone reports it.
+# 3. What each guest is (container or VM) and the limits pve01 enforces on it, from its
+#    Proxmox config and its cgroup (lab-guest-metrics): a guest can't see these itself.
 #
 # Runs after the mgmt01 play in ansible/site.yml: it writes into mgmt01's monitoring
 # directory, which roles/monitoring creates.
@@ -82,3 +84,24 @@
     enabled: true
     state: started
     daemon_reload: "{{ wg_units.changed }}"
+
+- name: Guest metrics script
+  ansible.builtin.copy:
+    src: lab-guest-metrics
+    dest: /usr/local/libexec/lab-guest-metrics
+    mode: "0755"
+
+- name: Guest metrics units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-guest-metrics.service, lab-guest-metrics.timer]
+  register: guest_units
+
+- name: Guest metrics every 30 seconds
+  ansible.builtin.systemd_service:
+    name: lab-guest-metrics.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ guest_units.changed }}"

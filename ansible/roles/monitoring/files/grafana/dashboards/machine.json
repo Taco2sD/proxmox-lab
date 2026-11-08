@@ -88,6 +88,254 @@
  ],
  "panels": [
   {
+   "id": 21,
+   "type": "stat",
+   "title": "Kind",
+   "description": "Virtual machine: its own kernel on emulated hardware (KVM). Container: a group of processes on pve01's own kernel, fenced in by namespaces and cgroups. Proxmox host: pve01, itself a Hyper-V VM on the Windows host. Read from pve01 (lab-guest-metrics), because a container can't tell: it even sees pve01's hardware (DMI) as its own.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 5,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "(max(lab_guest_config_info{guest=\"$host\",type=\"qemu\"}) * 1) or (max(lab_guest_config_info{guest=\"$host\",type=\"lxc\"}) * 2) or (max(node_dmi_info{host=\"$host\"}) * 3)",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "1": {
+         "text": "Virtual machine",
+         "color": "blue",
+         "index": 0
+        },
+        "2": {
+         "text": "Container",
+         "color": "orange",
+         "index": 1
+        },
+        "3": {
+         "text": "Proxmox host",
+         "color": "purple",
+         "index": 2
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 22,
+   "type": "stat",
+   "title": "Isolation",
+   "description": "How the machine is separated from the others. Unprivileged container: root inside is an ordinary user on pve01. nesting: may run its own containers (Docker on mgmt01).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 5,
+    "y": 0,
+    "w": 10,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_config_info{guest=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "{{isolation}}",
+     "instant": true,
+     "range": false
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_dmi_info{host=\"$host\"} unless on() lab_guest_config_info{guest=\"$host\"}",
+     "refId": "B",
+     "legendFormat": "The hypervisor: a {{system_vendor}} {{product_name}} (Hyper-V), running KVM nested",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "name",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 23,
+   "type": "stat",
+   "title": "Proxmox ID",
+   "description": "The guest's ID on pve01 (pct for containers, qm for VMs).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 15,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max(lab_guest_id{guest=\"$host\"})",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 0,
+     "noValue": "host",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 24,
+   "type": "stat",
+   "title": "Kernel",
+   "description": "A container always shows pve01's kernel: it has none of its own. A VM boots its own.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 0,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "node_uname_info{host=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "{{release}}",
+     "instant": true,
+     "range": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "name",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
    "id": 1,
    "type": "stat",
    "title": "Status",
@@ -98,7 +346,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 0,
+    "y": 4,
     "w": 3,
     "h": 4
    },
@@ -163,7 +411,7 @@
    },
    "gridPos": {
     "x": 3,
-    "y": 0,
+    "y": 4,
     "w": 5,
     "h": 4
    },
@@ -224,7 +472,7 @@
    },
    "gridPos": {
     "x": 8,
-    "y": 0,
+    "y": 4,
     "w": 3,
     "h": 4
    },
@@ -278,7 +526,7 @@
    },
    "gridPos": {
     "x": 11,
-    "y": 0,
+    "y": 4,
     "w": 2,
     "h": 4
    },
@@ -330,7 +578,7 @@
    },
    "gridPos": {
     "x": 13,
-    "y": 0,
+    "y": 4,
     "w": 2,
     "h": 4
    },
@@ -384,7 +632,7 @@
    },
    "gridPos": {
     "x": 15,
-    "y": 0,
+    "y": 4,
     "w": 3,
     "h": 4
    },
@@ -452,7 +700,7 @@
    },
    "gridPos": {
     "x": 18,
-    "y": 0,
+    "y": 4,
     "w": 2,
     "h": 4
    },
@@ -513,7 +761,7 @@
    },
    "gridPos": {
     "x": 20,
-    "y": 0,
+    "y": 4,
     "w": 2,
     "h": 4
    },
@@ -574,7 +822,7 @@
    },
    "gridPos": {
     "x": 22,
-    "y": 0,
+    "y": 4,
     "w": 2,
     "h": 4
    },
@@ -635,7 +883,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 4,
+    "y": 8,
     "w": 12,
     "h": 8
    },
@@ -693,7 +941,7 @@
    },
    "gridPos": {
     "x": 12,
-    "y": 4,
+    "y": 8,
     "w": 12,
     "h": 8
    },
@@ -844,7 +1092,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 12,
+    "y": 16,
     "w": 8,
     "h": 8
    },
@@ -910,7 +1158,7 @@
    },
    "gridPos": {
     "x": 8,
-    "y": 12,
+    "y": 16,
     "w": 8,
     "h": 8
    },
@@ -977,7 +1225,7 @@
    },
    "gridPos": {
     "x": 16,
-    "y": 12,
+    "y": 16,
     "w": 8,
     "h": 8
    },
@@ -1044,7 +1292,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 20,
+    "y": 24,
     "w": 8,
     "h": 8
    },
@@ -1170,7 +1418,7 @@
    },
    "gridPos": {
     "x": 8,
-    "y": 20,
+    "y": 24,
     "w": 8,
     "h": 8
    },
@@ -1229,7 +1477,7 @@
    },
    "gridPos": {
     "x": 16,
-    "y": 20,
+    "y": 24,
     "w": 8,
     "h": 8
    },
@@ -1298,7 +1546,7 @@
    },
    "gridPos": {
     "x": 0,
-    "y": 28,
+    "y": 32,
     "w": 8,
     "h": 7
    },
@@ -1369,7 +1617,7 @@
    },
    "gridPos": {
     "x": 8,
-    "y": 28,
+    "y": 32,
     "w": 6,
     "h": 7
    },
@@ -1428,7 +1676,7 @@
   {
    "id": 20,
    "type": "timeseries",
-   "title": "Proxmox's view of this VM",
+   "title": "Proxmox's view of this guest",
    "description": "The same machine from the hypervisor's side (pve-exporter). Inside and outside should agree; when the guest is down this still shows whether the VM is spinning.",
    "datasource": {
     "type": "prometheus",
@@ -1436,7 +1684,7 @@
    },
    "gridPos": {
     "x": 14,
-    "y": 28,
+    "y": 32,
     "w": 10,
     "h": 7
    },
@@ -1446,7 +1694,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "pve_cpu_usage_ratio * on (id) group_left (name) pve_guest_info{name=\"$host\"}",
+     "expr": "max(pve_cpu_usage_ratio * on (id) group_left (name) pve_guest_info{name=\"$host\"})",
      "refId": "A",
      "legendFormat": "CPU (share of its cores)"
     },
@@ -1455,7 +1703,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "pve_memory_usage_bytes / pve_memory_size_bytes * on (id) group_left (name) pve_guest_info{name=\"$host\"}",
+     "expr": "max(pve_memory_usage_bytes / pve_memory_size_bytes * on (id) group_left (name) pve_guest_info{name=\"$host\"})",
      "refId": "B",
      "legendFormat": "memory (share of its RAM)"
     }
@@ -1490,6 +1738,719 @@
      "mode": "multi",
      "sort": "desc"
     }
+   }
+  },
+  {
+   "id": 25,
+   "type": "row",
+   "title": "Limits: what pve01 enforces on this guest (cgroup v2)",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 39,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 26,
+   "type": "table",
+   "title": "cgroup settings",
+   "description": "The cgroup files on pve01, live. CPU weight: the share of CPU under contention (100 is the default; double it, double the share). CPUs: a container's cores are a cpuset, the CPUs its processes may run on; a VM's are virtual CPUs, so it has none. Memory limit: above it the kernel kills a process (OOM) inside the guest; memory high: above it the kernel reclaims cache and slows the guest down first. A VM's memory is fixed by QEMU instead, so its cgroup has no memory limit. none: no limit set.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 40,
+    "w": 24,
+    "h": 4
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (guest) (lab_guest_cgroup_cpu_weight{guest=\"$host\"})",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (guest) (lab_guest_cgroup_cpuset_cpus{guest=\"$host\"})",
+     "refId": "B",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (guest) (lab_guest_cgroup_cpu_max_cores{guest=\"$host\"})",
+     "refId": "C",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (guest) (lab_guest_cgroup_memory_max_bytes{guest=\"$host\"})",
+     "refId": "D",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (guest) (lab_guest_cgroup_memory_high_bytes{guest=\"$host\"})",
+     "refId": "E",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (guest) (lab_guest_cgroup_swap_max_bytes{guest=\"$host\"})",
+     "refId": "F",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (guest) (lab_guest_cgroup_pids_max{guest=\"$host\"})",
+     "refId": "G",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "max by (guest) (lab_guest_cgroup_memory_peak_bytes{guest=\"$host\"})",
+     "refId": "H",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "none",
+         "color": "text",
+         "index": 0
+        }
+       }
+      }
+     ],
+     "custom": {
+      "align": "center"
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Memory limit"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Memory high"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Swap limit"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Memory peak"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "md",
+    "footer": {
+     "show": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "filterFieldsByName",
+     "options": {
+      "include": {
+       "names": [
+        "Value #A",
+        "Value #B",
+        "Value #C",
+        "Value #D",
+        "Value #E",
+        "Value #F",
+        "Value #G",
+        "Value #H"
+       ]
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "renameByName": {
+       "Value #A": "CPU weight",
+       "Value #B": "CPUs (cpuset)",
+       "Value #C": "CPU cap (cores)",
+       "Value #D": "Memory limit",
+       "Value #E": "Memory high",
+       "Value #F": "Swap limit",
+       "Value #G": "Process limit",
+       "Value #H": "Memory peak"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 27,
+   "type": "bargauge",
+   "title": "Use against its limits",
+   "description": "Memory counts page cache, which the kernel reclaims at the high mark, so a busy container sits near it without harm; trouble is memory events and memory pressure (next panels).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 44,
+    "w": 6,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_cgroup_memory_current_bytes{guest=\"$host\"} / (lab_guest_cgroup_memory_max_bytes{guest=\"$host\"} > 0)",
+     "refId": "A",
+     "legendFormat": "Memory (of limit)"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_cgroup_memory_current_bytes{guest=\"$host\"} / (lab_guest_cgroup_memory_high_bytes{guest=\"$host\"} > 0)",
+     "refId": "B",
+     "legendFormat": "Memory (of high mark)"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_cgroup_swap_current_bytes{guest=\"$host\"} / (lab_guest_cgroup_swap_max_bytes{guest=\"$host\"} > 0)",
+     "refId": "C",
+     "legendFormat": "Swap"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_cgroup_pids_current{guest=\"$host\"} / (lab_guest_cgroup_pids_max{guest=\"$host\"} > 0)",
+     "refId": "D",
+     "legendFormat": "Processes"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(rate(lab_guest_cgroup_cpu_usage_seconds_total{guest=\"$host\"}[$__rate_interval])) / scalar(max(lab_guest_config_cores{guest=\"$host\"}))",
+     "refId": "E",
+     "legendFormat": "CPU (of its cores)"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.75
+       },
+       {
+        "color": "red",
+        "value": 0.95
+       }
+      ]
+     },
+     "min": 0,
+     "max": 1,
+     "noValue": "Not a Proxmox guest"
+    },
+    "overrides": []
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "gradient",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "top",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 28,
+   "type": "timeseries",
+   "title": "Memory against its limits",
+   "description": "The guest's cgroup on pve01: for a container, all its processes; for a VM, the QEMU process (guest RAM plus QEMU's own overhead).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 44,
+    "w": 7,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_cgroup_memory_current_bytes{guest=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "in use"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_cgroup_swap_current_bytes{guest=\"$host\"}",
+     "refId": "B",
+     "legendFormat": "swap"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_cgroup_memory_high_bytes{guest=\"$host\"} > 0",
+     "refId": "C",
+     "legendFormat": "high mark"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_cgroup_memory_max_bytes{guest=\"$host\"} > 0",
+     "refId": "D",
+     "legendFormat": "limit"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     },
+     "noValue": "Not a Proxmox guest"
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "limit"
+      },
+      "properties": [
+       {
+        "id": "custom.stacking",
+        "value": {
+         "mode": "none",
+         "group": "A"
+        }
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "high mark"
+      },
+      "properties": [
+       {
+        "id": "custom.stacking",
+        "value": {
+         "mode": "none",
+         "group": "A"
+        }
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 0
+       },
+       {
+        "id": "custom.lineStyle",
+        "value": {
+         "fill": "dash",
+         "dash": [
+          10,
+          10
+         ]
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 2
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8e8e8e"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "high mark"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "swap"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "red"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 29,
+   "type": "timeseries",
+   "title": "Pressure: time spent waiting",
+   "description": "Pressure stall information: the share of time at least one of the guest's tasks waited for CPU, memory or disk. A full limit shows here before it shows anywhere else.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 13,
+    "y": 44,
+    "w": 6,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "rate(lab_guest_cgroup_pressure_seconds_total{guest=\"$host\",kind=\"some\"}[$__rate_interval])",
+     "refId": "A",
+     "legendFormat": "{{resource}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     },
+     "noValue": "Not a Proxmox guest"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 30,
+   "type": "stat",
+   "title": "Limit events (this time range)",
+   "description": "high: reclaimed at the high mark (normal for a container full of cache). max: hit the hard limit. oom_kill: a process inside was killed for memory. cpu throttled: time held back by a CPU cap.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 19,
+    "y": 44,
+    "w": 5,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (event) (increase(lab_guest_cgroup_memory_events_total{guest=\"$host\",event=~\"high|max|oom_kill\"}[$__range]))",
+     "refId": "A",
+     "legendFormat": "{{event}}"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "increase(lab_guest_cgroup_cpu_throttled_seconds_total{guest=\"$host\"}[$__range])",
+     "refId": "B",
+     "legendFormat": "cpu throttled (s)"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     },
+     "decimals": 0,
+     "noValue": "Not a Proxmox guest"
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "oom_kill"
+      },
+      "properties": [
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "red",
+           "value": 1
+          }
+         ]
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value_and_name",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
    }
   }
  ]

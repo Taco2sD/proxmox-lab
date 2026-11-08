@@ -34,7 +34,16 @@ dashboards are JSON in git, deployed like everything else.
                           (textfile collector)  of every workstation, last configuration run,
                                                 memory budget, reconciler, images, operations
  pve01                    lab-wg-metrics        the WireGuard tunnel's last handshake
+ pve01                    lab-guest-metrics     what each guest is (container or VM) and the
+                                                limits pve01 enforces on it: its Proxmox config
+                                                and its cgroup (CPU weight, cpuset, memory and
+                                                swap limits, process limit, pressure, OOM kills)
 ```
+
+A guest can't be trusted to say what it is: a container runs on pve01's kernel and even
+reads pve01's hardware data (mgmt01's node_exporter reports "Microsoft Corporation Virtual
+Machine", which is pve01 under Hyper-V), and its limits are set above what it can see. So
+the Machine dashboard takes "Kind" and the whole Limits section from pve01.
 
 Prometheus **pulls** every 15 seconds. That's what makes "down" reliable: a target that
 doesn't answer is `up == 0` at once, where a push system has to guess from silence.
