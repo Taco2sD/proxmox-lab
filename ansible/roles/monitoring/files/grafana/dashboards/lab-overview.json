@@ -105,7 +105,7 @@
    "id": 1,
    "type": "stat",
    "title": "Firing alerts",
-   "description": "Alert rules (roles/monitoring/files/alerts.yml) that are firing now. The table below says which.",
+   "description": "Alerts firing now; the table below lists them.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -173,7 +173,7 @@
    "id": 2,
    "type": "stat",
    "title": "Workstations",
-   "description": "Every workstation the lab keeps, by power state. Hibernated machines are suspended to disk and resume exactly where they were; they're off Prometheus's target list until then.",
+   "description": "By power state. Hibernated machines are suspended to disk and resume where they left off.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -270,8 +270,8 @@
   {
    "id": 3,
    "type": "gauge",
-   "title": "Memory budget",
-   "description": "Memory promised to portal workstations (running or not) against guest_memory_mb. The portal refuses new machines that don't fit (lablib.admission).",
+   "title": "Guest RAM",
+   "description": "RAM promised to portal workstations, running or not, against the portal's budget. Requests that don't fit are refused.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -337,7 +337,7 @@
    "id": 4,
    "type": "gauge",
    "title": "pve01 CPU",
-   "description": "The hypervisor's CPU use, all cores.",
+   "description": "All cores.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -402,8 +402,8 @@
   {
    "id": 5,
    "type": "gauge",
-   "title": "pve01 memory",
-   "description": "The hypervisor's memory in use (VMs plus Proxmox itself).",
+   "title": "pve01 RAM",
+   "description": "In use: guests plus Proxmox itself.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -468,8 +468,8 @@
   {
    "id": 6,
    "type": "gauge",
-   "title": "VM storage",
-   "description": "local-lvm, the thin pool every VM disk lives on. Thin: VMs are promised more than there is, so this real use is what counts.",
+   "title": "Disk pool",
+   "description": "local-lvm, the thin pool holding every guest disk. Thin-provisioned, so real use is what counts.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -534,8 +534,8 @@
   {
    "id": 7,
    "type": "stat",
-   "title": "Certificates",
-   "description": "Days until the first of the lab's TLS certificates expires. Let's Encrypt renews at 30 days left.",
+   "title": "Cert expiry",
+   "description": "Days until the soonest TLS certificate expires. Let's Encrypt renews at 30.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -601,8 +601,8 @@
   {
    "id": 8,
    "type": "stat",
-   "title": "Security fixes",
-   "description": "Pending security updates across every monitored machine (node_exporter's apt collector).",
+   "title": "Security",
+   "description": "Pending security updates, all machines.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -663,7 +663,7 @@
    "id": 9,
    "type": "table",
    "title": "Firing alerts",
-   "description": "What's wrong right now. Each rule's summary and first steps are on Prometheus's alerts page.",
+   "description": "What's wrong now. Each alert links its runbook on Prometheus's alerts page.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -791,7 +791,7 @@
    "id": 10,
    "type": "state-timeline",
    "title": "Service checks",
-   "description": "Each service probed from mgmt01 the way a user meets it (blackbox_exporter): HTTPS with a valid certificate, LDAPS, Kerberos, AD DNS, and the public sign-in page on the VPS.",
+   "description": "Each service probed from mgmt01 the way a user reaches it: HTTPS with a valid certificate, LDAPS, Kerberos, AD DNS, and the public sign-in page on the VPS.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -868,7 +868,7 @@
   {
    "id": 11,
    "type": "row",
-   "title": "Hypervisor: pve01, as Proxmox sees its VMs",
+   "title": "pve01 and its guests",
    "collapsed": false,
    "gridPos": {
     "x": 0,
@@ -881,8 +881,8 @@
   {
    "id": 12,
    "type": "timeseries",
-   "title": "CPU by VM",
-   "description": "Cores each VM is using, stacked; the dashed line is what pve01 has.",
+   "title": "CPU by guest",
+   "description": "Cores in use per guest, stacked. Dashed: pve01's cores.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -899,7 +899,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "pve_cpu_usage_ratio * pve_cpu_usage_limit * on (id) group_left (name) pve_guest_info{template=\"0\"}",
+     "expr": "max by (name) (pve_cpu_usage_ratio * pve_cpu_usage_limit * on (id) group_left (name) pve_guest_info{template=\"0\"})",
      "refId": "A",
      "legendFormat": "{{name}}"
     },
@@ -989,8 +989,8 @@
   {
    "id": 13,
    "type": "timeseries",
-   "title": "Memory by VM",
-   "description": "Memory each VM is using, stacked; the dashed line is what pve01 has. Hibernated machines use none.",
+   "title": "Memory by guest",
+   "description": "Per guest, stacked. Dashed: pve01's RAM. Hibernated guests use none.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -1007,7 +1007,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "pve_memory_usage_bytes * on (id) group_left (name) pve_guest_info{template=\"0\"}",
+     "expr": "max by (name) (pve_memory_usage_bytes * on (id) group_left (name) pve_guest_info{template=\"0\"})",
      "refId": "A",
      "legendFormat": "{{name}}"
     },
@@ -1098,7 +1098,7 @@
    "id": 14,
    "type": "bargauge",
    "title": "Storage pools",
-   "description": "Proxmox's storage: local-lvm holds VM disks, local holds ISOs and backups.",
+   "description": "local-lvm: guest disks. local: ISOs and backups.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -1163,8 +1163,8 @@
   {
    "id": 15,
    "type": "timeseries",
-   "title": "Disk I/O by VM",
-   "description": "Reads up, writes down (Proxmox's per-VM counters).",
+   "title": "Disk I/O by guest",
+   "description": "Reads up, writes down.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -1181,7 +1181,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "rate(pve_disk_read_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"} > 0",
+     "expr": "max by (name) (rate(pve_disk_read_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"}) > 0",
      "refId": "A",
      "legendFormat": "{{name}} read"
     },
@@ -1190,7 +1190,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "-rate(pve_disk_written_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"} < 0",
+     "expr": "-max by (name) (rate(pve_disk_written_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"}) < 0",
      "refId": "B",
      "legendFormat": "{{name}} write"
     }
@@ -1230,7 +1230,7 @@
   {
    "id": 16,
    "type": "timeseries",
-   "title": "Network by VM",
+   "title": "Network by guest",
    "description": "Received up, sent down.",
    "datasource": {
     "type": "prometheus",
@@ -1248,7 +1248,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "rate(pve_network_receive_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"} > 0",
+     "expr": "max by (name) (rate(pve_network_receive_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"}) > 0",
      "refId": "A",
      "legendFormat": "{{name}} in"
     },
@@ -1257,7 +1257,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "-rate(pve_network_transmit_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"} < 0",
+     "expr": "-max by (name) (rate(pve_network_transmit_bytes_total[$__rate_interval]) * on (id) group_left (name) pve_guest_info{template=\"0\"}) < 0",
      "refId": "B",
      "legendFormat": "{{name}} out"
     }
@@ -1761,12 +1761,12 @@
      {
       "matcher": {
        "id": "byName",
-       "options": "VM"
+       "options": "VMID"
       },
       "properties": [
        {
         "id": "custom.width",
-        "value": 60
+        "value": 70
        }
       ]
      },
@@ -1983,7 +1983,7 @@
        "kind": "Kind",
        "power": "Power",
        "ip": "Address",
-       "vmid": "VM",
+       "vmid": "VMID",
        "Value #B": "CPU",
        "Value #C": "Memory",
        "Value #D": "Disk /",
@@ -2259,7 +2259,7 @@
    "id": 23,
    "type": "timeseries",
    "title": "Clock offset",
-   "description": "How far each clock is from its time source. Kerberos (AD sign-ins) refuses 5 minutes; the alert fires at half a second. VMs freeze with their host and wake up behind (chrony: makestep 1 -1).",
+   "description": "Offset from the time source. Kerberos fails at 5 minutes; the alert fires at 0.5 s. A guest resuming from hibernation wakes up behind until chrony steps the clock.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2333,8 +2333,8 @@
   {
    "id": 24,
    "type": "stat",
-   "title": "Tunnel: last handshake",
-   "description": "The WireGuard tunnel from pve01 to the VPS: the internet's only way in. Handshakes renew every two minutes while the VPS answers.",
+   "title": "VPS tunnel handshake",
+   "description": "WireGuard, pve01 to the VPS: the only way in from the internet. Renews every 2 minutes while the VPS answers.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2400,8 +2400,8 @@
   {
    "id": 25,
    "type": "timeseries",
-   "title": "Tunnel traffic",
-   "description": "Bytes through the tunnel: visitors using the portal from the internet.",
+   "title": "VPS tunnel traffic",
+   "description": "Visitors using the lab from the internet.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2458,8 +2458,8 @@
   {
    "id": 26,
    "type": "bargauge",
-   "title": "Root filesystem",
-   "description": "/ on every monitored machine.",
+   "title": "Root disk use",
+   "description": "/ on every machine.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2525,7 +2525,7 @@
    "id": 27,
    "type": "bargauge",
    "title": "Pending updates",
-   "description": "Package updates waiting on each machine, security and others (apt collector, every 15 minutes).",
+   "description": "Per machine, security and other updates (checked every 15 minutes).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2601,7 +2601,7 @@
    "id": 29,
    "type": "stat",
    "title": "Reconciler last ran",
-   "description": "lab-reconcile.timer runs every minute: it applies the release branch whenever it moves.",
+   "description": "lab-reconcile.timer, every minute: deploys the release branch when it moves.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2668,7 +2668,7 @@
    "id": 30,
    "type": "stat",
    "title": "Last full deploy",
-   "description": "When the reconciler last ran the whole server configuration (site.yml).",
+   "description": "The reconciler's last full run of site.yml.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2721,8 +2721,8 @@
   {
    "id": 31,
    "type": "stat",
-   "title": "Release",
-   "description": "Whether the latest commit on the release branch was applied.",
+   "title": "Latest release",
+   "description": "Whether the newest commit on the release branch deployed.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2786,7 +2786,7 @@
   {
    "id": 32,
    "type": "stat",
-   "title": "Reconciler",
+   "title": "Reconciler state",
    "description": "Paused while /var/lib/lab/reconcile.paused exists (docs/operations.md).",
    "datasource": {
     "type": "prometheus",
@@ -2852,7 +2852,7 @@
    "id": 33,
    "type": "stat",
    "title": "Operations, last 24 h",
-   "description": "Builds, deletes, image builds and deploys (`lab`), by outcome. Unresolved: failures with no later success on the same machine, image or release (alert OperationFailureUnresolved). The admin page's Activity has each one.",
+   "description": "Builds, deletes, image builds and deploys, by outcome. Unresolved: failed with no later success on the same machine, image or release. Details: Activity on the admin page.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"

@@ -84,8 +84,8 @@ def isolation(kind, cfg):
     if kind == "lxc":
         feats = [f.split("=")[0] for f in cfg.get("features", "").split(",") if f.endswith("=1")]
         return ("Unprivileged" if cfg.get("unprivileged") == "1" else "Privileged") + \
-            " container, shares pve01's kernel" + (f" ({', '.join(feats)})" if feats else "")
-    return f"Full VM with its own kernel (KVM, CPU type {cfg.get('cpu', 'kvm64').split(',')[0]})"
+            " LXC, pve01's kernel" + (f", {', '.join(feats)}" if feats else "")
+    return f"KVM, own kernel, CPU type {cfg.get('cpu', 'kvm64').split(',')[0]}"
 
 
 def blockdev(majmin):
@@ -134,36 +134,56 @@ def what_is(dm, names):
     if m:
         owner = names.get(m.group(2), f"guest {m.group(2)}")
         part = m.group(3)
-        what = ("cloud-init disk" if part == "cloudinit" else "hibernation image" if part.startswith("state")
+        what = ("cloud-init" if part == "cloudinit" else "hibernation image" if part.startswith("state")
                 else f"disk {m.group(4)}")
-        return owner, f"{owner}: {'golden image ' if m.group(1) == 'base' else ''}{what}"
-    fixed = {"pve-root": "pve01's root filesystem", "pve-swap": "pve01's swap",
-             "pve-data": "thin pool pve/data", "pve-data-tpool": "thin pool pve/data (every guest disk is in it)",
-             "pve-data_tdata": "thin pool pve/data: its data", "pve-data_tmeta": "thin pool pve/data: its metadata"}
-    return "pve01", fixed.get(dm, f"pve01's disk {dm} (Hyper-V virtual disk; everything is on it)")
+        return owner, f"{owner} {'image ' if m.group(1) == 'base' else ''}{what}"
+    fixed = {"pve-root": "pve01 root", "pve-swap": "pve01 swap", "pve-data": "thin pool",
+             "pve-data-tpool": "thin pool", "pve-data_tdata": "thin pool data", "pve-data_tmeta": "thin pool metadata"}
+    return "pve01", fixed.get(dm, "pve01 physical disk")
+
+
+def dir_bytes(path):
+    """Disk space a directory's files take (du -s)."""
+    total = 0
+    for root, _, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(root, f)).st_blocks * 512
+            except OSError:
+                pass
+    return total
+
+
+def dev_bytes(dev):
+    return int(read(Path("/sys/class/block") / dev / "size") or 0) * 512
 
 
 def guest_disks(kind, cfg):
-    """(where it shows in the guest, what backs it on pve01, pve01 device) per disk."""
+    """Per disk: (where it shows in the guest, what backs it on pve01, pve01 device, bytes,
+    whether it's the guest's own). Bytes: an own volume's size; a bind mount's contents (the
+    device is all of pve01's filesystem); swap: what a container may use of pve01's."""
     out = []
     for key, val in cfg.items():
         src = val.split(",")[0]
+        vol = src.split(":", 1)[-1]
         if kind == "lxc" and (key == "rootfs" or re.fullmatch(r"mp\d+", key)):
             where = "/" if key == "rootfs" else (re.search(r"mp=([^,]+)", val) or [None, key])[1]
-            ro = " (read-only)" if "ro=1" in val else ""
+            ro = ", read-only" if "ro=1" in val else ""
             if src.startswith("/"):                       # bind mount of a pve01 directory
-                out.append((where, f"pve01 directory {src}{ro}", devname(src)))
+                out.append((where, f"pve01:{src}{ro}", devname(src), dir_bytes(src), False))
             elif ":" in src:
-                out.append((where, src + ro, devname(f"/dev/pve/{src.split(':', 1)[1]}")))
+                dev = devname(f"/dev/pve/{vol}")
+                out.append((where, f"own volume {vol}{ro}", dev, dev and dev_bytes(dev), True))
         elif kind == "qemu" and re.fullmatch(r"(scsi|virtio|sata|ide|efidisk|tpmstate)\d+", key) and ":" in src:
             if "media=cdrom" in val and "cloudinit" not in src:
                 continue
             where = f"{key} (cloud-init)" if "cloudinit" in src else key
-            out.append((where, src, devname(f"/dev/pve/{src.split(':', 1)[1]}")))
+            dev = devname(f"/dev/pve/{vol}")
+            out.append((where, f"own volume {vol}", dev, dev and dev_bytes(dev), True))
     if kind == "lxc" and int(cfg.get("swap", 512)) > 0:
         swaps = (read(Path("/proc/swaps")) or "").splitlines()[1:]
         if swaps:
-            out.append(("swap", "pve01's swap", devname(swaps[0].split()[0])))
+            out.append(("swap", "pve01's swap", devname(swaps[0].split()[0]), int(cfg.get("swap", 512)) * MIB, False))
     return [d for d in out if d[2]]
 
 
@@ -214,14 +234,14 @@ def main():
             o.add("lab_guest_config_cpu_limit_cores", "Hard CPU cap in cores (cpulimit; 0: none).",
                   L, float(cfg.get("cpulimit", 0)))
 
-            for where, source, dev in guest_disks(kind, cfg):
-                chain = stack(dev)
-                if where != "swap" and not source.startswith("pve01"):   # its own volume, not a share of pve01's
-                    mounts.setdefault(dev, f"{name}: {where}")
+            for where, source, dev, size, own in guest_disks(kind, cfg):
+                if own:                                   # pve01's devices it shares keep pve01's names
+                    mounts.setdefault(dev, f"{name} {where}")
                 o.add("lab_guest_disk_bytes", "Each guest disk: where it shows in the guest, what backs it on "
-                      "pve01, and the pve01 devices it is stacked on (value: its size).",
-                      {**L, "mount": where, "source": source, "device": dev,
-                       "chain": " -> ".join(chain)}, int(read(Path("/sys/class/block") / dev / "size") or 0) * 512)
+                      "pve01, the device stack under it (value: an own volume's size, a bind mount's "
+                      "contents, a container's swap limit).",
+                      {**L, "mount": where, "source": source, "device": dev, "own": str(own).lower(),
+                       "chain": " > ".join(stack(dev))}, size)
 
             d = cgdir(vmid)
             if not d.is_dir():                            # not running: no cgroup

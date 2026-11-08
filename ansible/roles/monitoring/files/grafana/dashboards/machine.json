@@ -91,7 +91,7 @@
    "id": 21,
    "type": "stat",
    "title": "Kind",
-   "description": "Virtual machine: its own kernel on emulated hardware (KVM). Container: a group of processes on pve01's own kernel, fenced in by namespaces and cgroups. Proxmox host: pve01, itself a Hyper-V VM on the Windows host. Read from pve01 (lab-guest-metrics), because a container can't tell: it even sees pve01's hardware (DMI) as its own.",
+   "description": "VM: its own kernel (KVM). Container: processes on pve01's kernel, fenced in by namespaces and cgroups. Proxmox host: pve01, a Hyper-V VM. Read from pve01: a container can't tell, it even sees pve01's hardware as its own.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -163,7 +163,7 @@
    "id": 22,
    "type": "stat",
    "title": "Isolation",
-   "description": "How the machine is separated from the others. Unprivileged container: root inside is an ordinary user on pve01. nesting: may run its own containers (Docker on mgmt01).",
+   "description": "Unprivileged: root inside maps to an unprivileged user on pve01. nesting: may run its own containers (Docker).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -193,7 +193,7 @@
      },
      "expr": "node_dmi_info{host=\"$host\"} unless on() lab_guest_config_info{guest=\"$host\"}",
      "refId": "B",
-     "legendFormat": "The hypervisor: a {{system_vendor}} {{product_name}} (Hyper-V), running KVM nested",
+     "legendFormat": "Hyper-V VM, runs KVM nested",
      "instant": true,
      "range": false
     }
@@ -227,8 +227,8 @@
   {
    "id": 23,
    "type": "stat",
-   "title": "Proxmox ID",
-   "description": "The guest's ID on pve01 (pct for containers, qm for VMs).",
+   "title": "VMID",
+   "description": "Its ID for pct (containers) or qm (VMs) on pve01.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -285,7 +285,7 @@
    "id": 24,
    "type": "stat",
    "title": "Kernel",
-   "description": "A container always shows pve01's kernel: it has none of its own. A VM boots its own.",
+   "description": "A container runs pve01's kernel; a VM boots its own.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -338,7 +338,7 @@
   {
    "id": 1,
    "type": "stat",
-   "title": "Status",
+   "title": "Up?",
    "description": "Whether Prometheus can scrape the machine's node_exporter right now.",
    "datasource": {
     "type": "prometheus",
@@ -347,7 +347,7 @@
    "gridPos": {
     "x": 0,
     "y": 4,
-    "w": 3,
+    "w": 2,
     "h": 4
    },
    "targets": [
@@ -403,16 +403,16 @@
   {
    "id": 2,
    "type": "stat",
-   "title": "What it is",
-   "description": "Workstations: catalog role, owner and power state. Servers: their job in the lab.",
+   "title": "Role",
+   "description": "Workstations: role \u00b7 owner \u00b7 power state. Servers: their job.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 3,
+    "x": 2,
     "y": 4,
-    "w": 5,
+    "w": 4,
     "h": 4
    },
    "targets": [
@@ -471,9 +471,9 @@
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 8,
+    "x": 6,
     "y": 4,
-    "w": 3,
+    "w": 2,
     "h": 4
    },
    "targets": [
@@ -518,14 +518,14 @@
   {
    "id": 4,
    "type": "stat",
-   "title": "CPU cores",
+   "title": "Cores",
    "description": "",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 11,
+    "x": 8,
     "y": 4,
     "w": 2,
     "h": 4
@@ -570,14 +570,14 @@
   {
    "id": 5,
    "type": "stat",
-   "title": "Memory",
+   "title": "RAM",
    "description": "",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 13,
+    "x": 10,
     "y": 4,
     "w": 2,
     "h": 4
@@ -625,13 +625,13 @@
    "id": 6,
    "type": "stat",
    "title": "Configured",
-   "description": "Workstations: since the last finished configuration run (ansible-pull, every 30 minutes).",
+   "description": "Workstations: since ansible-pull last finished (every 30 minutes). Servers are deployed by the reconciler (Lab overview).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 15,
+    "x": 12,
     "y": 4,
     "w": 3,
     "h": 4
@@ -668,7 +668,7 @@
       ]
      },
      "decimals": 0,
-     "noValue": "n/a"
+     "noValue": "\u2013"
     },
     "overrides": []
    },
@@ -699,9 +699,9 @@
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 18,
+    "x": 15,
     "y": 4,
-    "w": 2,
+    "w": 3,
     "h": 4
    },
    "targets": [
@@ -760,9 +760,9 @@
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 20,
+    "x": 18,
     "y": 4,
-    "w": 2,
+    "w": 3,
     "h": 4
    },
    "targets": [
@@ -821,9 +821,9 @@
     "uid": "prometheus"
    },
    "gridPos": {
-    "x": 22,
+    "x": 21,
     "y": 4,
-    "w": 2,
+    "w": 3,
     "h": 4
    },
    "targets": [
@@ -1085,7 +1085,7 @@
    "id": 12,
    "type": "bargauge",
    "title": "Filesystems",
-   "description": "",
+   "description": "Use of each filesystem. In a container, a bind mount shows the whole pve01 filesystem it lives on; Storage, below, has the directory's own size.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -1102,9 +1102,22 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "1 - node_filesystem_avail_bytes{host=\"$host\",fstype!~\"tmpfs|ramfs|squashfs|overlay|efivarfs|fuse.*\"} / node_filesystem_size_bytes{host=\"$host\",fstype!~\"tmpfs|ramfs|squashfs|overlay|efivarfs|fuse.*\"}",
+     "expr": "(1 - node_filesystem_avail_bytes{host=\"$host\",fstype!~\"tmpfs|ramfs|squashfs|overlay|efivarfs|fuse.*\"} / node_filesystem_size_bytes{host=\"$host\",fstype!~\"tmpfs|ramfs|squashfs|overlay|efivarfs|fuse.*\"}) unless on() lab_guest_config_info{guest=\"$host\",type=\"lxc\"}",
      "refId": "A",
-     "legendFormat": "{{mountpoint}}"
+     "legendFormat": "{{mountpoint}}",
+     "instant": true,
+     "range": false
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "(1 - node_filesystem_avail_bytes{host=\"$host\",fstype!~\"tmpfs|ramfs|squashfs|overlay|efivarfs|fuse.*\"} / node_filesystem_size_bytes{host=\"$host\",fstype!~\"tmpfs|ramfs|squashfs|overlay|efivarfs|fuse.*\"}) * on (mountpoint) group_left (source) (max by (mountpoint, source) (label_replace(lab_guest_disk_bytes{guest=\"$host\"}, \"mountpoint\", \"$1\", \"mount\", \"(.*)\")) * 0 + 1)",
+     "refId": "B",
+     "legendFormat": "{{mountpoint}} ({{source}})",
+     "instant": true,
+     "range": false
     }
    ],
    "fieldConfig": {
@@ -1151,7 +1164,7 @@
    "id": 13,
    "type": "timeseries",
    "title": "Disk I/O",
-   "description": "Reads up, writes down. In a container this is pve01's whole disk traffic, not the container's: the kernel counts per device, and a container has no devices of its own, so each line is named for what the device is on pve01. The container's own share is in Storage at the bottom.",
+   "description": "Reads up, writes down. In a container these are all of pve01's disks, host-wide: a container has no block devices of its own. Each is labelled with what it is on pve01; the container's own share is under Storage, below.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -1188,7 +1201,7 @@
      },
      "expr": "(sum by (device) (rate(node_disk_read_bytes_total{host=\"$host\"}[$__rate_interval])) > 0) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info) and on() lab_guest_config_info{guest=\"$host\",type=\"lxc\"}",
      "refId": "C",
-     "legendFormat": "pve01 {{device}} ({{what}}) read"
+     "legendFormat": "{{what}} ({{device}}) read"
     },
     {
      "datasource": {
@@ -1197,7 +1210,7 @@
      },
      "expr": "(-sum by (device) (rate(node_disk_written_bytes_total{host=\"$host\"}[$__rate_interval])) < 0) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info) and on() lab_guest_config_info{guest=\"$host\",type=\"lxc\"}",
      "refId": "D",
-     "legendFormat": "pve01 {{device}} ({{what}}) write"
+     "legendFormat": "{{what}} ({{device}}) write"
     }
    ],
    "fieldConfig": {
@@ -1695,7 +1708,7 @@
    "id": 20,
    "type": "timeseries",
    "title": "Proxmox's view of this guest",
-   "description": "The same machine from the hypervisor's side (pve-exporter). Inside and outside should agree; when the guest is down this still shows whether the VM is spinning.",
+   "description": "The same machine from pve01's side. Shows whether it's busy even when it stops answering.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -1761,7 +1774,7 @@
   {
    "id": 25,
    "type": "row",
-   "title": "Limits: what pve01 enforces on this guest (cgroup v2)",
+   "title": "Limits pve01 enforces (cgroup v2)",
    "collapsed": false,
    "gridPos": {
     "x": 0,
@@ -1774,8 +1787,8 @@
   {
    "id": 26,
    "type": "table",
-   "title": "cgroup settings",
-   "description": "The cgroup files on pve01, live. CPU weight: the share of CPU under contention (100 is the default; double it, double the share). CPUs: a container's cores are a cpuset, the CPUs its processes may run on; a VM's are virtual CPUs, so it has none. Memory limit: above it the kernel kills a process (OOM) inside the guest; memory high: above it the kernel reclaims cache and slows the guest down first. A VM's memory is fixed by QEMU instead, so its cgroup has no memory limit. none: no limit set.",
+   "title": "cgroup limits",
+   "description": "Live from pve01's cgroup files; none = unlimited. CPU weight: share under contention (default 100). Pinned CPUs: a container's cores are a cpuset; a VM's vCPUs aren't pinned. Memory high: the kernel reclaims and throttles above it; memory max: OOM kills above it. A VM's RAM is fixed by QEMU, so its cgroup has no memory cap.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -1906,7 +1919,7 @@
      {
       "matcher": {
        "id": "byName",
-       "options": "Memory limit"
+       "options": "Memory max"
       },
       "properties": [
        {
@@ -1938,7 +1951,7 @@
      {
       "matcher": {
        "id": "byName",
-       "options": "Swap limit"
+       "options": "Swap max"
       },
       "properties": [
        {
@@ -2003,12 +2016,12 @@
      "options": {
       "renameByName": {
        "Value #A": "CPU weight",
-       "Value #B": "CPUs (cpuset)",
+       "Value #B": "Pinned CPUs",
        "Value #C": "CPU cap (cores)",
-       "Value #D": "Memory limit",
+       "Value #D": "Memory max",
        "Value #E": "Memory high",
-       "Value #F": "Swap limit",
-       "Value #G": "Process limit",
+       "Value #F": "Swap max",
+       "Value #G": "Process max",
        "Value #H": "Memory peak"
       }
      }
@@ -2018,8 +2031,8 @@
   {
    "id": 27,
    "type": "bargauge",
-   "title": "Use against its limits",
-   "description": "Memory counts page cache, which the kernel reclaims at the high mark, so a busy container sits near it without harm; trouble is memory events and memory pressure (next panels).",
+   "title": "Usage vs limits",
+   "description": "Memory includes page cache, reclaimed at the high mark, so sitting near it is normal. Trouble shows as OOM kills and memory pressure.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2038,7 +2051,9 @@
      },
      "expr": "lab_guest_cgroup_memory_current_bytes{guest=\"$host\"} / (lab_guest_cgroup_memory_max_bytes{guest=\"$host\"} > 0)",
      "refId": "A",
-     "legendFormat": "Memory (of limit)"
+     "legendFormat": "Memory / max",
+     "instant": true,
+     "range": false
     },
     {
      "datasource": {
@@ -2047,7 +2062,9 @@
      },
      "expr": "lab_guest_cgroup_memory_current_bytes{guest=\"$host\"} / (lab_guest_cgroup_memory_high_bytes{guest=\"$host\"} > 0)",
      "refId": "B",
-     "legendFormat": "Memory (of high mark)"
+     "legendFormat": "Memory / high",
+     "instant": true,
+     "range": false
     },
     {
      "datasource": {
@@ -2056,7 +2073,9 @@
      },
      "expr": "lab_guest_cgroup_swap_current_bytes{guest=\"$host\"} / (lab_guest_cgroup_swap_max_bytes{guest=\"$host\"} > 0)",
      "refId": "C",
-     "legendFormat": "Swap"
+     "legendFormat": "Swap",
+     "instant": true,
+     "range": false
     },
     {
      "datasource": {
@@ -2065,7 +2084,9 @@
      },
      "expr": "lab_guest_cgroup_pids_current{guest=\"$host\"} / (lab_guest_cgroup_pids_max{guest=\"$host\"} > 0)",
      "refId": "D",
-     "legendFormat": "Processes"
+     "legendFormat": "Processes",
+     "instant": true,
+     "range": false
     },
     {
      "datasource": {
@@ -2074,7 +2095,9 @@
      },
      "expr": "sum(rate(lab_guest_cgroup_cpu_usage_seconds_total{guest=\"$host\"}[$__rate_interval])) / scalar(max(lab_guest_config_cores{guest=\"$host\"}))",
      "refId": "E",
-     "legendFormat": "CPU (of its cores)"
+     "legendFormat": "CPU / cores",
+     "instant": true,
+     "range": false
     }
    ],
    "fieldConfig": {
@@ -2121,8 +2144,8 @@
   {
    "id": 28,
    "type": "timeseries",
-   "title": "Memory against its limits",
-   "description": "The guest's cgroup on pve01: for a container, all its processes; for a VM, the QEMU process (guest RAM plus QEMU's own overhead).",
+   "title": "Memory vs limits",
+   "description": "Its cgroup on pve01: a container's processes, or a VM's QEMU process (guest RAM plus QEMU overhead).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2159,7 +2182,7 @@
      },
      "expr": "lab_guest_cgroup_memory_high_bytes{guest=\"$host\"} > 0",
      "refId": "C",
-     "legendFormat": "high mark"
+     "legendFormat": "high"
     },
     {
      "datasource": {
@@ -2168,7 +2191,7 @@
      },
      "expr": "lab_guest_cgroup_memory_max_bytes{guest=\"$host\"} > 0",
      "refId": "D",
-     "legendFormat": "limit"
+     "legendFormat": "max"
     }
    ],
    "fieldConfig": {
@@ -2194,7 +2217,7 @@
      {
       "matcher": {
        "id": "byName",
-       "options": "limit"
+       "options": "max"
       },
       "properties": [
        {
@@ -2234,7 +2257,7 @@
      {
       "matcher": {
        "id": "byName",
-       "options": "high mark"
+       "options": "high"
       },
       "properties": [
        {
@@ -2274,7 +2297,7 @@
      {
       "matcher": {
        "id": "byName",
-       "options": "high mark"
+       "options": "high"
       },
       "properties": [
        {
@@ -2318,8 +2341,8 @@
   {
    "id": 29,
    "type": "timeseries",
-   "title": "Pressure: time spent waiting",
-   "description": "Pressure stall information: the share of time at least one of the guest's tasks waited for CPU, memory or disk. A full limit shows here before it shows anywhere else.",
+   "title": "Pressure (PSI)",
+   "description": "Share of time some task in the guest stalled waiting for CPU, memory or I/O. Rises first when a limit bites.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2377,8 +2400,8 @@
   {
    "id": 30,
    "type": "stat",
-   "title": "Limit events (this time range)",
-   "description": "high: reclaimed at the high mark (normal for a container full of cache). max: hit the hard limit. oom_kill: a process inside was killed for memory. cpu throttled: time held back by a CPU cap.",
+   "title": "Limit events",
+   "description": "Over the selected time range. High-mark reclaims are routine for a cache-heavy container; OOM kills are not.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2406,7 +2429,7 @@
      },
      "expr": "increase(lab_guest_cgroup_cpu_throttled_seconds_total{guest=\"$host\"}[$__range])",
      "refId": "B",
-     "legendFormat": "cpu throttled (s)"
+     "legendFormat": "CPU throttled (s)"
     }
    ],
    "fieldConfig": {
@@ -2431,9 +2454,44 @@
      {
       "matcher": {
        "id": "byName",
+       "options": "high"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "High-mark reclaims"
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "text"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "max"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Hit memory max"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
        "options": "oom_kill"
       },
       "properties": [
+       {
+        "id": "displayName",
+        "value": "OOM kills"
+       },
        {
         "id": "thresholds",
         "value": {
@@ -2474,7 +2532,7 @@
   {
    "id": 31,
    "type": "row",
-   "title": "Storage: where this guest's disks live on pve01, and its share of pve01's disk traffic",
+   "title": "Storage on pve01",
    "collapsed": false,
    "gridPos": {
     "x": 0,
@@ -2487,8 +2545,8 @@
   {
    "id": 32,
    "type": "table",
-   "title": "Its disks on pve01",
-   "description": "Every disk the guest has and what it is on pve01. A container's root is a thin volume in pve01's pool; /srv/iso is a directory of pve01's own root filesystem, bind-mounted read-only; its swap is pve01's swap. Device stack: thin volume (dm-N) -> thin pool (dm-4, its data dm-3) -> pve01's disk (sda). For a bind mount or swap, Size is that whole pve01 device.",
+   "title": "Disks",
+   "description": "What backs each disk on pve01, down to the physical disk (volume > thin pool > sda). Size: an own volume's size, a bind mount's contents, or a container's swap allowance.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2518,7 +2576,32 @@
      "unit": "bytes",
      "decimals": 1
     },
-    "overrides": []
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "In guest"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 90
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Size"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 80
+       }
+      ]
+     }
+    ]
    },
    "options": {
     "showHeader": true,
@@ -2555,9 +2638,9 @@
        "Value": 3
       },
       "renameByName": {
-       "mount": "In the guest",
+       "mount": "In guest",
        "source": "On pve01",
-       "chain": "Device stack on pve01",
+       "chain": "Device stack",
        "Value": "Size"
       }
      }
@@ -2567,8 +2650,8 @@
   {
    "id": 33,
    "type": "bargauge",
-   "title": "Its volumes' share of pve01's physical disk (this time range)",
-   "description": "Bytes through each of the guest's own volumes over bytes through pve01's disk (sda), which every guest and pve01 share: how much of the physical disk's work is this guest's. Only volumes it owns count; its swap and bind mounts are shared with pve01 and can't be split per guest.",
+   "title": "Share of pve01's disk I/O",
+   "description": "Bytes through its own volumes as a share of all bytes through pve01's physical disk, over the time range. Shared devices (swap, bind mounts) can't be split per guest, so they aren't counted.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2587,7 +2670,9 @@
      },
      "expr": "sum by (device) (increase(node_disk_read_bytes_total{host=\"pve01\"}[$__range]) + increase(node_disk_written_bytes_total{host=\"pve01\"}[$__range])) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info{owner=\"$host\"}) / scalar(sum(increase(node_disk_read_bytes_total{host=\"pve01\",device=\"sda\"}[$__range]) + increase(node_disk_written_bytes_total{host=\"pve01\",device=\"sda\"}[$__range])))",
      "refId": "A",
-     "legendFormat": "{{device}}: {{what}}"
+     "legendFormat": "{{what}} ({{device}})",
+     "instant": true,
+     "range": false
     }
    ],
    "fieldConfig": {
@@ -2631,8 +2716,8 @@
   {
    "id": 34,
    "type": "timeseries",
-   "title": "Its own volumes' traffic",
-   "description": "Reads up, writes down, measured on pve01 at the guest's own volumes: what this guest itself puts on the disk. Compare the Disk I/O panel above, which for a container is all of pve01.",
+   "title": "Own volumes' I/O",
+   "description": "Reads up, writes down, measured on pve01: what this guest itself puts on disk.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -2651,7 +2736,7 @@
      },
      "expr": "sum by (device) (rate(node_disk_read_bytes_total{host=\"pve01\"}[$__rate_interval])) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info{owner=\"$host\"}) > 0",
      "refId": "A",
-     "legendFormat": "{{device}} ({{what}}) read"
+     "legendFormat": "{{what}} ({{device}}) read"
     },
     {
      "datasource": {
@@ -2660,7 +2745,7 @@
      },
      "expr": "-sum by (device) (rate(node_disk_written_bytes_total{host=\"pve01\"}[$__rate_interval])) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info{owner=\"$host\"}) < 0",
      "refId": "B",
-     "legendFormat": "{{device}} ({{what}}) write"
+     "legendFormat": "{{what}} ({{device}}) write"
     }
    ],
    "fieldConfig": {

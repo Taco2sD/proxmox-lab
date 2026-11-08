@@ -19,7 +19,7 @@ lab_guest_memory_committed_bytes / lab_guest_memory_budget_bytes > 0.90
 
 ## First five minutes
 
-1. Lab overview: the Memory budget gauge and the workstation table (owner, role, last used).
+1. Lab overview: the Guest RAM gauge and the workstation table (owner, role, last used).
 2. On mgmt01: `lab status` lists every machine and whether its VM is running.
 
 ## Common causes

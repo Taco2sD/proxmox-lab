@@ -15,7 +15,7 @@ A machine has had under 8% of its memory available (free plus reclaimable cache)
 
 1. `free -m` and `ps aux --sort=-rss | head -15` on the host.
 2. mgmt01 (3 GB): `docker stats --no-stream` (Grafana, Prometheus, Guacamole).
-3. pve01: the Lab overview's "Memory by VM" panel, `qm list` (MEM column), and how many
+3. pve01: the Lab overview's "Memory by guest" panel, `qm list` (MEM column), and how many
    workstations are awake. The portal admits workstations against `guest_memory_mb`
    (ansible/group_vars/all.yml), which leaves room for dc01, mgmt01 and Proxmox itself.
 4. Has anything been killed? `journalctl -k -b | grep -i -E 'oom|killed process'`.
