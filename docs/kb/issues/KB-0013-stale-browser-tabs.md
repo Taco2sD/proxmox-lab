@@ -1,7 +1,7 @@
 ---
 id: KB-0013
 title: Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI)
-status: open
+status: accepted
 found_by: investigation
 signal: lab-console refusals in pve01's journal; 404s for /api2/json/* in mgmt01's nginx log
 found: 2026-11-07
@@ -47,6 +47,8 @@ end either from the server side. Guacamole's JSON-auth sessions live until their
 expires (8 hours), and the old Proxmox tab gets a cheap 404 and simply asks again.
 
 ## Fix
+
+**Decision (2026-11-08): accepted.** The owner closes the tabs on their Mac; nothing to change in the lab.
 
 None on the server side yet: status open. **Action for a person:** close the forgotten
 tabs: the Guacamole tab(s) on ws31's and ws34's desktops, and any tab showing the Proxmox

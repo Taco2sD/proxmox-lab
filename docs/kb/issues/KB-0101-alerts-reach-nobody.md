@@ -1,7 +1,7 @@
 ---
 id: KB-0101
 title: Firing alerts reach nobody, and nothing watches the watcher
-status: open
+status: accepted
 found_by: review
 signal: "pre-mortem: no alerting section in prometheus.yml; Prometheus runs on mgmt01, which it also monitors"
 found: 2026-11-07
@@ -39,6 +39,8 @@ A scope choice made while building the monitoring, never revisited: collection a
 were built first, and delivery was left for later.
 
 ## Fix
+
+**Decision (2026-11-08): accepted.** This is a demo lab with nobody on call: firing alerts on the Lab overview and Prometheus's alerts page are enough. Alertmanager stays the production answer.
 
 Proposed in PLAN-0002, not applied:
 

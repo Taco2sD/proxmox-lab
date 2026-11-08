@@ -15,6 +15,8 @@ need, and no management interface accepts a password from the lab network.
 
 ## Why
 
+**Decision:** KB-0102 is accepted for the demo lab (2026-11-08): this plan is what production would need, not something to do now.
+
 From ws35 today, pve01's root SSH (with password authentication on) and the Proxmox UI both
 answer, with no throttling (KB-0102). The portal hands those shells to people outside the
 team.

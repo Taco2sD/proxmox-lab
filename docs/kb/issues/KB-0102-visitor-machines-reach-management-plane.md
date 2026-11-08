@@ -1,7 +1,7 @@
 ---
 id: KB-0102
 title: Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI
-status: open
+status: accepted
 found_by: review
 signal: "pre-mortem: TCP connects from ws35 to 10.10.10.10:22 and :8006; sshd -T on pve01"
 found: 2026-11-07
@@ -57,6 +57,8 @@ a multi-user one (the portal, the welcome page), but the trust model didn't chan
 Only the internet edge (the VPS gate, the tunnel's nft rules) was hardened.
 
 ## Fix
+
+**Decision (2026-11-08): accepted.** This is a short-lived demo lab whose visitors are invited, so root SSH to pve01 from their machines stays as it is. In production, PLAN-0005 is the fix.
 
 Proposed in PLAN-0005, cheapest first, not applied:
 

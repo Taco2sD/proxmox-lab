@@ -73,6 +73,13 @@ pve01:  needrestart_services 19  needrestart_containers 1 (LXC 106)  kernel_stat
 dc01, ws35, ws36: needrestart_services 0, kernel_status 1
 ```
 
+2026-11-08, with the owner's go-ahead: pve01's 18 services restarted one at a time (running
+workstations kept running) and mgmt01's container rebooted (`pct reboot 106`). Afterwards
+`needrestart_services` is 0 on both and ServicesNeedRestart cleared. The reboot exposed two
+follow-ups: Prometheus and blackbox stayed exited after the container came back (started
+again with `docker compose up -d`; cause not yet known), and ReconcilerStopped fired for
+about two minutes until the reconciler's first run after boot.
+
 All five report `needrestart_scan_success 1`; node_exporter on mgmt01 exports the 9
 series. Installing needrestart restarted nothing (no Stopping/Restarting lines in the
 journal).

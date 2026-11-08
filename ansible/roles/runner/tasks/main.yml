@@ -14,11 +14,13 @@
 # such guard and the package ships /etc/nvme/discovery.conf, so it ran at every boot and
 # failed (no /dev/nvme-fabrics in a container), which kept SystemdUnitsFailed firing.
 # docs/kb/issues/KB-0004-mgmt01-nvmf-autoconnect-in-lxc.md
-- name: No NVMe-over-Fabrics autoconnect in the container
+# openipmi (pulled in by ipmitool) is the same case: no IPMI device in a container.
+- name: No NVMe-over-Fabrics autoconnect or IPMI driver service in the container
   ansible.builtin.systemd_service:
-    name: nvmf-autoconnect.service
+    name: "{{ item }}"
     enabled: false
     masked: true
+  loop: [nvmf-autoconnect.service, openipmi.service]
 
 - name: OpenTofu and its API token must be in place
   ansible.builtin.stat:

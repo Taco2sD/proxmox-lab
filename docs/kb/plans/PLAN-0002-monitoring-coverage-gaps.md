@@ -15,6 +15,8 @@ and the monitoring is watched from outside the host it runs on.
 
 ## Why
 
+**Decision:** Alert delivery (KB-0101) is accepted for the demo lab (2026-11-08): the steps that route alerts are for production only.
+
 Today alerts go nowhere (KB-0101). Stopped services such as DHCP and the relays raise
 nothing (KB-0104). Backup age, AD database health and thin-pool metadata aren't measured
 (KB-0100, KB-0107, KB-0106).

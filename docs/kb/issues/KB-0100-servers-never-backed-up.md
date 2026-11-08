@@ -91,7 +91,8 @@ Still open (why the status is *mitigated*, not *fixed*):
 - **Off-host copy.** The archives sit on `local` on pve01: the same virtual disk, and the
   same physical drive (O: on the Windows host), as the VMs. Proposal for the owner: copy
   the newest archives nightly to the Windows host's other drive or, encrypted (they hold
-  secrets), to the VPS. Not done: it's a decision about where secrets may live.
+  secrets), to the VPS. Not done: it's a decision about where secrets may live. **Decision (2026-11-08):** not
+  needed; this is a light demo lab, and the on-host copies are enough for it.
 - **AD-level backup.** `samba-tool domain backup offline` next to the VM image, the
   supported way to restore AD on its own (PLAN-0001).
 

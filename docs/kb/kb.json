@@ -1002,7 +1002,7 @@
    ],
    "severity": "low",
    "signal": "lab-console refusals in pve01's journal; 404s for /api2/json/* in mgmt01's nginx log",
-   "status": "open",
+   "status": "accepted",
    "title": "Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI)"
   },
   {
@@ -2247,7 +2247,7 @@
    ],
    "severity": "high",
    "signal": "pre-mortem: no alerting section in prometheus.yml; Prometheus runs on mgmt01, which it also monitors",
-   "status": "open",
+   "status": "accepted",
    "title": "Firing alerts reach nobody, and nothing watches the watcher"
   },
   {
@@ -2275,7 +2275,7 @@
    "related": [],
    "severity": "high",
    "signal": "pre-mortem: TCP connects from ws35 to 10.10.10.10:22 and :8006; sshd -T on pve01",
-   "status": "open",
+   "status": "accepted",
    "title": "Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI"
   },
   {

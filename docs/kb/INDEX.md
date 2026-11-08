@@ -24,8 +24,8 @@ How the knowledge base works: [README.md](README.md). Everything below, as data:
 |---|---|
 | fixed | 60 |
 | mitigated | 2 |
-| open | 8 |
-| accepted | 1 |
+| open | 5 |
+| accepted | 4 |
 
 ### Severity
 
@@ -53,10 +53,10 @@ Known problems that aren't fixed: accepted ones were judged not worth fixing (th
 
 | Issue | Problem | Status | Severity | Found by | Hosts |
 |---|---|---|---|---|---|
-| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | open | low | investigation | pve01, mgmt01 |
+| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | accepted | low | investigation | pve01, mgmt01 |
 | [KB-0058](issues/KB-0058-rdp-to-gnome-not-servable-through-guacamole.md) | Remote desktop over RDP couldn't serve the GNOME desktop through Guacamole | accepted | medium | investigation | workstations, mgmt01 |
-| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | open | high | review | mgmt01 |
-| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | open | high | review | workstations, pve01, dc01, mgmt01 |
+| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | accepted | high | review | mgmt01 |
+| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | accepted | high | review | workstations, pve01, dc01, mgmt01 |
 | [KB-0103](issues/KB-0103-windows-host-pending-reboot.md) | The Windows host has a pending servicing reboot that would take the whole lab down at an unplanned moment | open | medium | review | windows-host, pve01 |
 | [KB-0104](issues/KB-0104-stopped-critical-services-raise-nothing.md) | A critical service that is stopped (not failed) raises no alert, and DHCP is never probed | open | medium | review | dc01, pve01, mgmt01 |
 | [KB-0105](issues/KB-0105-infrastructure-state-made-by-hand.md) | The infrastructure servers' own definitions live only on pve01 (made by hand, not in git) | open | medium | review | pve01, dc01, mgmt01, vps, windows-host |
@@ -173,8 +173,8 @@ Patterns and components by number of issues: where to look first, and where a pl
 | [KB-0105](issues/KB-0105-infrastructure-state-made-by-hand.md) | 2026-11-07 | The infrastructure servers' own definitions live only on pve01 (made by hand, not in git) | open | review |
 | [KB-0104](issues/KB-0104-stopped-critical-services-raise-nothing.md) | 2026-11-07 | A critical service that is stopped (not failed) raises no alert, and DHCP is never probed | open | review |
 | [KB-0103](issues/KB-0103-windows-host-pending-reboot.md) | 2026-11-07 | The Windows host has a pending servicing reboot that would take the whole lab down at an unplanned moment | open | review |
-| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | 2026-11-07 | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | open | review |
-| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | 2026-11-07 | Firing alerts reach nobody, and nothing watches the watcher | open | review |
+| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | 2026-11-07 | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | accepted | review |
+| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | 2026-11-07 | Firing alerts reach nobody, and nothing watches the watcher | accepted | review |
 | [KB-0100](issues/KB-0100-servers-never-backed-up.md) | 2026-11-07 | dc01 and mgmt01 have never been backed up, and nothing would notice if backups stopped | mitigated | review |
 | [KB-0062](issues/KB-0062-manual-start-hibernated-at-once.md) | 2026-11-07 | A machine started outside My lab was hibernated as idle within a minute | fixed | build |
 
@@ -381,7 +381,7 @@ Depends on: [prometheus](#prometheus).
 | [KB-0006](issues/KB-0006-operations-alert-counted-resolved-failures.md) | The failed-operations alert kept firing for failures that had already been put right | fixed | monitoring |
 | [KB-0007](issues/KB-0007-per-unit-failed-alert-storm.md) | One alert per failed systemd unit turned one leaking template unit into ~1,700 alerts | fixed | monitoring |
 | [KB-0008](issues/KB-0008-stale-single-file-bind-mounts.md) | Prometheus kept evaluating old alert rules after a deploy (single-file bind mounts) | fixed | build |
-| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | open | review |
+| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | accepted | review |
 | [KB-0104](issues/KB-0104-stopped-critical-services-raise-nothing.md) | A critical service that is stopped (not failed) raises no alert, and DHCP is never probed | open | review |
 | [KB-0107](issues/KB-0107-ad-database-health-unwatched.md) | AD database health isn't checked; dbcheck already reports 5 dangling links from deleted workstations | fixed | review |
 | [KB-0160](issues/KB-0160-workstation-access-paths-unprobed.md) | Nothing checked that people can actually reach their workstations (SSH, Desktop console) | fixed | review |
@@ -460,7 +460,7 @@ Used by: [guacamole](#guacamole).
 | Issue | Problem | Status | Found by |
 |---|---|---|---|
 | [KB-0001](issues/KB-0001-console-relay-failed-units.md) | Failed lab-console@ units pile up on pve01 while a browser keeps reconnecting to a sleeping machine | fixed | monitoring |
-| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | open | investigation |
+| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | accepted | investigation |
 | [KB-0056](issues/KB-0056-guacamole-replayed-spent-console-ticket.md) | Desktop Reconnect never worked: Guacamole replayed a spent one-time console ticket | fixed | build |
 | [KB-0104](issues/KB-0104-stopped-critical-services-raise-nothing.md) | A critical service that is stopped (not failed) raises no alert, and DHCP is never probed | open | review |
 | [KB-0108](issues/KB-0108-long-lived-secrets-without-rotation.md) | Every lab secret is long-lived, and none has a written rotation procedure | open | review |
@@ -559,7 +559,7 @@ Depends on: [prometheus](#prometheus), [nginx](#nginx), [docker](#docker).
 | [KB-0009](issues/KB-0009-alert-table-showed-first-series-only.md) | The Lab overview's alert table showed only the first firing alert | fixed | build |
 | [KB-0010](issues/KB-0010-mgmt01-disk-too-small-for-monitoring.md) | mgmt01's root disk was too small for the monitoring stack | fixed | build |
 | [KB-0012](issues/KB-0012-dashboard-cosmetic-bugs.md) | Dashboard titles were cut off and a no-data text filled empty table cells | fixed | build |
-| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | open | review |
+| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | accepted | review |
 
 ### guacamole
 
@@ -573,7 +573,7 @@ Used by: [portal](#portal).
 | Issue | Problem | Status | Found by |
 |---|---|---|---|
 | [KB-0001](issues/KB-0001-console-relay-failed-units.md) | Failed lab-console@ units pile up on pve01 while a browser keeps reconnecting to a sleeping machine | fixed | monitoring |
-| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | open | investigation |
+| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | accepted | investigation |
 | [KB-0036](issues/KB-0036-osc-3008-garbles-browser-terminal.md) | Browser terminal filled with start=...;machineid=... on every prompt | fixed | build |
 | [KB-0037](issues/KB-0037-guacamole-reused-stale-session.md) | A second Connect showed 'No recent connections' instead of the machine | fixed | build |
 | [KB-0056](issues/KB-0056-guacamole-replayed-spent-console-ticket.md) | Desktop Reconnect never worked: Guacamole replayed a spent one-time console ticket | fixed | build |
@@ -639,7 +639,7 @@ Docs: `README.md`, `docs/operations.md`.
 |---|---|---|---|
 | [KB-0004](issues/KB-0004-mgmt01-nvmf-autoconnect-in-lxc.md) | nvmf-autoconnect failed at every boot inside mgmt01's container | fixed | monitoring |
 | [KB-0005](issues/KB-0005-no-automatic-security-updates.md) | mgmt01 and pve01 had no automatic security updates; 76 were waiting on mgmt01 | fixed | monitoring |
-| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | open | review |
+| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | accepted | review |
 | [KB-0105](issues/KB-0105-infrastructure-state-made-by-hand.md) | The infrastructure servers' own definitions live only on pve01 (made by hand, not in git) | open | review |
 
 ### nginx
@@ -652,7 +652,7 @@ Used by: [ansible-pull](#ansible-pull), [grafana](#grafana), [portal](#portal), 
 
 | Issue | Problem | Status | Found by |
 |---|---|---|---|
-| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | open | investigation |
+| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | accepted | investigation |
 | [KB-0038](issues/KB-0038-vps-502-ssl-verify-depth.md) | The VPS answered 502 after turning on upstream certificate checks | fixed | build |
 | [KB-0048](issues/KB-0048-stale-proxmox-tab-exhausted-rate-limit.md) | Every page of lab. and pve. answered 503 because one stale browser tab used up the rate limit | fixed | build |
 | [KB-0049](issues/KB-0049-reconcile-failed-nginx-unquoted-regex.md) | Reconciler deploy failed: nginx rejected an unquoted regex with braces | fixed | build |
@@ -668,7 +668,7 @@ Used by: [lab-metrics](#lab-metrics), [prometheus](#prometheus).
 | Issue | Problem | Status | Found by |
 |---|---|---|---|
 | [KB-0007](issues/KB-0007-per-unit-failed-alert-storm.md) | One alert per failed systemd unit turned one leaking template unit into ~1,700 alerts | fixed | monitoring |
-| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | open | review |
+| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | accepted | review |
 | [KB-0104](issues/KB-0104-stopped-critical-services-raise-nothing.md) | A critical service that is stopped (not failed) raises no alert, and DHCP is never probed | open | review |
 | [KB-0107](issues/KB-0107-ad-database-health-unwatched.md) | AD database health isn't checked; dbcheck already reports 5 dangling links from deleted workstations | fixed | review |
 | [KB-0155](issues/KB-0155-patched-but-not-restarted.md) | Security updates installed but services kept running the old code, and nothing showed it | fixed | investigation |
@@ -713,7 +713,7 @@ Depends on: [nginx](#nginx), [ldaps](#ldaps), [guacamole](#guacamole).
 | Issue | Problem | Status | Found by |
 |---|---|---|---|
 | [KB-0001](issues/KB-0001-console-relay-failed-units.md) | Failed lab-console@ units pile up on pve01 while a browser keeps reconnecting to a sleeping machine | fixed | monitoring |
-| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | open | investigation |
+| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | accepted | investigation |
 | [KB-0014](issues/KB-0014-idle-hibernate-after-one-hour.md) | Staff machines hibernated after only one hour without a session | fixed | user |
 | [KB-0037](issues/KB-0037-guacamole-reused-stale-session.md) | A second Connect showed 'No recent connections' instead of the machine | fixed | build |
 | [KB-0039](issues/KB-0039-401-dropped-basic-auth-credentials.md) | Admin sign-in made the browser ask for the demo password again | fixed | build |
@@ -723,7 +723,7 @@ Depends on: [nginx](#nginx), [ldaps](#ldaps), [guacamole](#guacamole).
 | [KB-0060](issues/KB-0060-copy-paste-broken-by-redraw.md) | Copy and paste stopped working on the portal pages | fixed | build |
 | [KB-0061](issues/KB-0061-stale-snapshot-showed-ready-machine-as-off.md) | My lab showed a machine that just became ready or woke up as still off | fixed | build |
 | [KB-0100](issues/KB-0100-servers-never-backed-up.md) | dc01 and mgmt01 have never been backed up, and nothing would notice if backups stopped | mitigated | review |
-| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | open | review |
+| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | accepted | review |
 | [KB-0108](issues/KB-0108-long-lived-secrets-without-rotation.md) | Every lab secret is long-lived, and none has a written rotation procedure | open | review |
 
 ### portal-relay
@@ -768,7 +768,7 @@ Used by: [alert-rules](#alert-rules), [grafana](#grafana).
 |---|---|---|---|
 | [KB-0008](issues/KB-0008-stale-single-file-bind-mounts.md) | Prometheus kept evaluating old alert rules after a deploy (single-file bind mounts) | fixed | build |
 | [KB-0010](issues/KB-0010-mgmt01-disk-too-small-for-monitoring.md) | mgmt01's root disk was too small for the monitoring stack | fixed | build |
-| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | open | review |
+| [KB-0101](issues/KB-0101-alerts-reach-nobody.md) | Firing alerts reach nobody, and nothing watches the watcher | accepted | review |
 
 ### proxmox-ve
 
@@ -788,7 +788,7 @@ Used by: [backups](#backups), [console-relay](#console-relay), [golden-image](#g
 | [KB-0027](issues/KB-0027-chroot-rbind-stripped-host-cgroups.md) | Leaving a chroot on pve01 unmounted the host's own /sys/fs/cgroup and hung its reboot | fixed | investigation |
 | [KB-0032](issues/KB-0032-qm-disk-unlink-dropped-boot-order.md) | A reimaged VM reinstalled itself eight times | fixed | build |
 | [KB-0100](issues/KB-0100-servers-never-backed-up.md) | dc01 and mgmt01 have never been backed up, and nothing would notice if backups stopped | mitigated | review |
-| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | open | review |
+| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | accepted | review |
 | [KB-0103](issues/KB-0103-windows-host-pending-reboot.md) | The Windows host has a pending servicing reboot that would take the whole lab down at an unplanned moment | open | review |
 | [KB-0105](issues/KB-0105-infrastructure-state-made-by-hand.md) | The infrastructure servers' own definitions live only on pve01 (made by hand, not in git) | open | review |
 | [KB-0106](issues/KB-0106-thin-pool-overcommit-unwatched-metadata.md) | local-lvm is overcommitted with autoextend off, and its metadata use isn't monitored | open | review |
@@ -866,7 +866,7 @@ Used by: [ad-dns](#ad-dns), [lab-cli](#lab-cli), [ldaps](#ldaps), [portal-worker
 | [KB-0029](issues/KB-0029-ad-dns-updates-refused-stale-dnsnode.md) | The DHCP server's DNS updates were REFUSED for names clients had registered before | fixed | build |
 | [KB-0031](issues/KB-0031-ad-groups-from-local-facts-unreliable.md) | First boot and later runs disagreed about the machine's AD groups | fixed | build |
 | [KB-0100](issues/KB-0100-servers-never-backed-up.md) | dc01 and mgmt01 have never been backed up, and nothing would notice if backups stopped | mitigated | review |
-| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | open | review |
+| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | accepted | review |
 | [KB-0107](issues/KB-0107-ad-database-health-unwatched.md) | AD database health isn't checked; dbcheck already reports 5 dangling links from deleted workstations | fixed | review |
 | [KB-0156](issues/KB-0156-needrestart-ubuntu-auto-restart.md) | Ubuntu's needrestart would restart services by itself after every unattended update | fixed | investigation |
 
@@ -880,7 +880,7 @@ Depends on: [wireguard-tunnel](#wireguard-tunnel).
 
 | Issue | Problem | Status | Found by |
 |---|---|---|---|
-| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | open | investigation |
+| [KB-0013](issues/KB-0013-stale-browser-tabs.md) | Forgotten browser tabs keep polling the lab all day (a Guacamole desktop and an old Proxmox UI) | accepted | investigation |
 | [KB-0038](issues/KB-0038-vps-502-ssl-verify-depth.md) | The VPS answered 502 after turning on upstream certificate checks | fixed | build |
 | [KB-0039](issues/KB-0039-401-dropped-basic-auth-credentials.md) | Admin sign-in made the browser ask for the demo password again | fixed | build |
 | [KB-0048](issues/KB-0048-stale-proxmox-tab-exhausted-rate-limit.md) | Every page of lab. and pve. answered 503 because one stale browser tab used up the rate limit | fixed | build |
@@ -952,6 +952,6 @@ Docs: `docs/self-service.md`, `docs/boundaries.md`.
 | Issue | Problem | Status | Found by |
 |---|---|---|---|
 | [KB-0002](issues/KB-0002-sssd-responder-sockets-failed.md) | SSSD's nss, pam and pac responder sockets sat failed on every workstation | fixed | monitoring |
-| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | open | review |
+| [KB-0102](issues/KB-0102-visitor-machines-reach-management-plane.md) | Visitors' workstations can reach the hypervisor's root SSH (password login allowed) and Proxmox UI | accepted | review |
 | [KB-0106](issues/KB-0106-thin-pool-overcommit-unwatched-metadata.md) | local-lvm is overcommitted with autoextend off, and its metadata use isn't monitored | open | review |
 | [KB-0160](issues/KB-0160-workstation-access-paths-unprobed.md) | Nothing checked that people can actually reach their workstations (SSH, Desktop console) | fixed | review |
