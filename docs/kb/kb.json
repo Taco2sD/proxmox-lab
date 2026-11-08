@@ -2164,6 +2164,30 @@
    "title": "A machine started outside My lab was hibernated as idle within a minute"
   },
   {
+   "commits": [],
+   "components": [
+    "ci"
+   ],
+   "found": "2026-11-08",
+   "found_by": "ci",
+   "hosts": [
+    "github"
+   ],
+   "id": "KB-0063",
+   "path": "docs/kb/issues/KB-0063-ci-failed-on-release-download-504.md",
+   "patterns": [
+    "upstream-outage"
+   ],
+   "related": [
+    "KB-0053"
+   ],
+   "resolved": "2026-11-08",
+   "severity": "low",
+   "signal": "GitHub Actions: curl: (22) The requested URL returned error: 504 (OpenTofu step)",
+   "status": "fixed",
+   "title": "CI failed when GitHub's release download answered 504"
+  },
+  {
    "commits": [
     "ed082b0",
     "00fe16c"
@@ -2873,6 +2897,14 @@
    "path": "docs/kb/patterns/upstream-default-changed.md",
    "pattern": "upstream-default-changed",
    "title": "An upstream release changed behaviour the lab relied on"
+  },
+  {
+   "components": [
+    "ci"
+   ],
+   "path": "docs/kb/patterns/upstream-outage.md",
+   "pattern": "upstream-outage",
+   "title": "An outside service the lab depends on is briefly down"
   }
  ],
  "plans": [
