@@ -1,10 +1,14 @@
-# Prometheus and blackbox re-read their configuration on SIGHUP: no restart, no gap
+# Prometheus and blackbox re-read their configuration on SIGHUP: no restart, no gap.
+# The signal goes in through `docker exec`, not `docker kill -s`: Docker marks any
+# container it sends a signal to as stopped by hand, and an unless-stopped container
+# with that mark stays down after the next reboot
+# (docs/kb/issues/KB-0161-signal-reload-blocks-restart-after-reboot.md).
 - name: Reload Prometheus
-  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml kill -s SIGHUP prometheus
+  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml exec -T prometheus kill -HUP 1
   changed_when: true
 
 - name: Reload blackbox
-  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml kill -s SIGHUP blackbox
+  ansible.builtin.command: docker compose -f /etc/lab-monitoring/compose.yml exec -T blackbox kill -HUP 1
   changed_when: true
 
 # Grafana reads provisioned data sources and its environment only at start

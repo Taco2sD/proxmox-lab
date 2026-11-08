@@ -2588,6 +2588,33 @@
    "signal": "KB-0001 follow-up (relay refusals no longer show as failed units)",
    "status": "fixed",
    "title": "Nothing checked that people can actually reach their workstations (SSH, Desktop console)"
+  },
+  {
+   "commits": [],
+   "components": [
+    "prometheus",
+    "blackbox",
+    "docker"
+   ],
+   "found": "2026-11-08",
+   "found_by": "investigation",
+   "hosts": [
+    "mgmt01"
+   ],
+   "id": "KB-0161",
+   "path": "docs/kb/issues/KB-0161-signal-reload-blocks-restart-after-reboot.md",
+   "patterns": [
+    "upstream-default-changed"
+   ],
+   "related": [
+    "KB-0155",
+    "KB-0008"
+   ],
+   "resolved": "2026-11-08",
+   "severity": "high",
+   "signal": "Containers exited after `pct reboot 106` (KB-0155's restarts)",
+   "status": "fixed",
+   "title": "Prometheus and blackbox stayed down after mgmt01 rebooted"
   }
  ],
  "patterns": [
