@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""/usr/local/libexec/lab-backup-metrics on pve01 (roles/pve_backups), run every 15
+minutes by lab-backup-metrics.timer: the servers' backups as metrics for node_exporter's
+textfile collector, so a backup that didn't happen raises an alert (BackupMissing,
+roles/monitoring/files/alerts.yml) instead of being discovered on the day it's needed.
+
+Why its own collector: prometheus-pve-exporter only says whether a guest is *in* a backup
+job (pve_not_backed_up_*), not whether a backup ever ran. Both servers sat in the job
+with no backup at all for a day (docs/kb/issues/KB-0100-servers-never-backed-up.md).
+
+What it publishes (labels: vmid, guest = the guest's name):
+  lab_backup_expected              1 for every guest an enabled vzdump job covers
+  lab_backup_last_timestamp_seconds    newest archive's creation time, per guest
+  lab_backup_last_size_bytes       that archive's size
+  lab_backup_archives              archives kept (the job prunes to keep-last)
+  lab_backup_metrics_last_run_timestamp_seconds   when this ran (staleness check)
+
+Read-only: it lists jobs, guests and storage contents through the Proxmox API (pvesh).
+"""
+import json
+import os
+import subprocess
+import time
+
+OUT = "/var/lib/prometheus/node-exporter/lab-backups.prom"
+
+
+def pvesh(path, *args):
+    out = subprocess.run(["pvesh", "get", path, "--output-format", "json", *args],
+                         capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
+def esc(value):
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def main():
+    node = os.uname().nodename
+    guests = {str(r["vmid"]): r for r in pvesh("/cluster/resources", "--type", "vm")}
+    names = {vmid: r.get("name", vmid) for vmid, r in guests.items()}
+
+    # Which guests the enabled vzdump jobs cover ("all" means every non-template guest)
+    expected = set()
+    for job in pvesh("/cluster/backup"):
+        if job.get("type", "vzdump") != "vzdump" or not int(job.get("enabled", 1)):
+            continue
+        if int(job.get("all", 0)):
+            expected |= {v for v, r in guests.items() if not r.get("template")}
+        else:
+            expected |= {v.strip() for v in str(job.get("vmid", "")).split(",") if v.strip()}
+
+    # Every archive on every storage that holds backups
+    newest, count = {}, {}
+    for store in pvesh(f"/nodes/{node}/storage", "--content", "backup"):
+        for item in pvesh(f"/nodes/{node}/storage/{store['storage']}/content", "--content", "backup"):
+            vmid = str(item.get("vmid", ""))
+            if not vmid:
+                continue
+            count[vmid] = count.get(vmid, 0) + 1
+            if item.get("ctime", 0) > newest.get(vmid, {}).get("ctime", 0):
+                newest[vmid] = item
+
+    lines = []
+
+    def metric(name, help_text, samples):
+        lines.extend([f"# HELP {name} {help_text}", f"# TYPE {name} gauge"])
+        for vmid, value in sorted(samples):
+            lines.append(f'{name}{{vmid="{esc(vmid)}",guest="{esc(names.get(vmid, vmid))}"}} {value}')
+
+    metric("lab_backup_expected", "1 for every guest an enabled vzdump job covers.",
+           [(v, 1) for v in expected])
+    metric("lab_backup_last_timestamp_seconds", "Creation time of the newest backup archive, per guest.",
+           [(v, i["ctime"]) for v, i in newest.items()])
+    metric("lab_backup_last_size_bytes", "Size of the newest backup archive, per guest.",
+           [(v, i.get("size", 0)) for v, i in newest.items()])
+    metric("lab_backup_archives", "Backup archives kept, per guest.", list(count.items()))
+    lines += ["# HELP lab_backup_metrics_last_run_timestamp_seconds When lab-backup-metrics last ran.",
+              "# TYPE lab_backup_metrics_last_run_timestamp_seconds gauge",
+              f"lab_backup_metrics_last_run_timestamp_seconds {time.time()}"]
+
+    # Renamed into place: node_exporter never reads half a file
+    tmp = OUT + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, OUT)
+
+
+if __name__ == "__main__":
+    main()

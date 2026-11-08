@@ -1,10 +1,11 @@
 ---
 id: KB-0100
 title: dc01 and mgmt01 have never been backed up, and nothing would notice if backups stopped
-status: open
+status: mitigated
 found_by: review
 signal: "pre-mortem: pvesh get /nodes/pve01/storage/local/content --content backup (empty)"
 found: 2026-11-07
+resolved: 2026-11-08
 severity: high
 hosts: [pve01, dc01, mgmt01]
 components: [backups, samba-ad, lab-cli, portal, proxmox-ve]
@@ -53,25 +54,62 @@ Three separate gaps line up:
 
 ## Fix
 
-Proposed (PLAN-0001 and PLAN-0002), not applied:
+Done on 2026-11-08:
 
-1. After 03:30 on 2026-11-08, confirm both backups exist (`pvesh get
-   /nodes/pve01/storage/local/content --content backup`), then test-restore mgmt01 to a
-   spare CT ID with the network disconnected (`pct restore 9106 <archive> --storage
-   local-lvm` with `--net0` removed), check `/var/lib/lab` is complete, and destroy it.
-2. Add a backup-age metric (a textfile on pve01 from `pvesh get .../content --content
-   backup`: newest `ctime` per VM ID) and an alert like `BackupTooOld` when the newest
-   backup of 105 or 106 is older than 26 h. Add a runbook for it.
-3. Copy each night's backups off pve01: at minimum to the Windows host's other drive or the
-   VPS (the archives hold secrets, so encrypt them). For dc01, add `samba-tool domain backup
-   offline`, the supported AD-level backup, next to the VM image.
+1. **First backups exist.** The scheduled job ran at 03:30 (task log OK, guest agent
+   fs-freeze/thaw around dc01's snapshot, so the image is filesystem-consistent):
+
+   ```
+   vzdump-qemu-105-2026_11_08-03_30_00.vma.zst  2.72 GB  (16 GiB disk, 65% zeros) 12 s
+   vzdump-lxc-106-2026_11_08-03_30_12.tar.zst   3.32 GB                           29 s
+   ```
+
+2. **Both restored and checked, then destroyed** (throwaway IDs 990/991, `--unique 1`,
+   network removed before anything could start them; dc01's copy never started, since a
+   second DC with the same identity on the network would damage AD):
+   - mgmt01 -> CT 991: `pct restore` took 9 s for 6.5 GiB. Mounted with `pct mount`:
+     `/var/lib/lab/guests` (ws31..ws36), `observed.json` from 03:29:57, `reconcile.json`,
+     the OpenTofu states in `/var/lib/lab/tofu`, `/etc/lab-monitoring` incl. `pve.env`,
+     `/etc/proxmox-lab/tofu.env`, `/opt/proxmox-lab` on `stable`, Prometheus's data (135 MB).
+   - dc01 -> VM 990: `qmrestore` took 11 s. Verified as far as the files: the OS disk's
+     root filesystem (ext4, partition 2) mounted read-only on pve01 via `losetup -r -P`:
+     hostname dc01, the AD partitions in `/var/lib/samba/private/sam.ldb.d` (domain
+     partition modified 03:20 that night), `secrets.keytab`, `/etc/dnsmasq.d/lab-dhcp.conf`.
+     Not verified: booting it and running `samba-tool dbcheck` (would need an isolated
+     network; the read-only file check is as far as is safe here).
+   - `qm destroy 990 --purge`, `pct destroy 991 --purge`: gone, thin pool back to 57.43%.
+
+3. **Backup recency is measured and alerted.** roles/pve_backups now installs
+   `lab-backup-metrics` (every 15 min, read-only `pvesh`): `lab_backup_expected`,
+   `lab_backup_last_timestamp_seconds`, `lab_backup_last_size_bytes`,
+   `lab_backup_archives` per guest. The alert BackupMissing
+   ([runbook](../runbooks/BackupMissing.md)) fires when a covered guest's newest archive is
+   over 26 h old or missing, or the collector itself goes stale.
+
+Still open (why the status is *mitigated*, not *fixed*):
+
+- **Off-host copy.** The archives sit on `local` on pve01: the same virtual disk, and the
+  same physical drive (O: on the Windows host), as the VMs. Proposal for the owner: copy
+  the newest archives nightly to the Windows host's other drive or, encrypted (they hold
+  secrets), to the VPS. Not done: it's a decision about where secrets may live.
+- **AD-level backup.** `samba-tool domain backup offline` next to the VM image, the
+  supported way to restore AD on its own (PLAN-0001).
 
 ## Verification
 
-Not fixed yet. Done when the backup-age metric shows dc01 and mgmt01 under 26 h, a test
-restore of mgmt01 has been done and written up, and an off-host copy exists.
+```
+$ cat /var/lib/prometheus/node-exporter/lab-backups.prom     # on pve01
+lab_backup_expected{vmid="105",guest="dc01"} 1
+lab_backup_expected{vmid="106",guest="mgmt01"} 1
+lab_backup_last_timestamp_seconds{vmid="105",guest="dc01"} 1794105000
+lab_backup_last_timestamp_seconds{vmid="106",guest="mgmt01"} 1794105012
+lab_backup_archives{vmid="105",guest="dc01"} 1
+```
+
+BackupMissing is loaded and inactive while both are under 26 h old.
 
 ## Prevention
 
 A safety net counts only once its result is measured: alert on "newest backup age", not on
-"a job exists". See [unwatched-safety-net](../patterns/unwatched-safety-net.md).
+"a job exists" ([unwatched-safety-net](../patterns/unwatched-safety-net.md)). A backup
+counts only once a restore from it has been tried.

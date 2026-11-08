@@ -1,0 +1,8 @@
+# /etc/systemd/system/lab-backup-metrics.timer on pve01 (roles/pve_backups)
+[Unit]
+Description=Backup recency metrics every 15 minutes
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+[Install]
+WantedBy=timers.target

@@ -21,14 +21,15 @@ and the first would make it unrecoverable.
 
 ## Steps
 
-- [ ] Sun 2026-11-08 after 03:30: `pvesh get /nodes/pve01/storage/local/content --content backup`
+- [x] Sun 2026-11-08 after 03:30: `pvesh get /nodes/pve01/storage/local/content --content backup`
       shows one archive each for 105 and 106. If not, read the vzdump task log
       (`pvesh get /nodes/pve01/tasks --typefilter vzdump`) and run
       `vzdump 105 106 --storage local --mode snapshot --compress zstd` by hand.
-- [ ] Test-restore mgmt01 to CT 9106 without network (`pct restore 9106 <archive> --storage
+- [x] Test-restore mgmt01 to CT 9106 without network (`pct restore 9106 <archive> --storage
       local-lvm`, then `pct set 9106 --delete net0` before starting it), check that
       `/var/lib/lab` and `/etc/lab-portal` are there, then `pct destroy 9106`. Record the
-      result in KB-0100.
+      result in KB-0100. (Done 2026-11-08 as CT 991, and dc01 as VM 990 without network,
+      never started; both destroyed. Backup age is now alerted: BackupMissing.)
 - [ ] dc01: run `samba-tool domain backup offline --targetdir=/var/backups/samba` once, and
       copy the archive off dc01.
 - [ ] Copy the newest archives of 105 and 106 off pve01 (to the Windows host's data drive) as

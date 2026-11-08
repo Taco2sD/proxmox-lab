@@ -7,7 +7,12 @@
 # Workstations aren't backed up: they're rebuilt from the image and the repo.
 #
 # Proxmox's own backup scheduler (vzdump), on local storage, keeping the last 7.
-# Restore: Proxmox UI -> the guest -> Backup, or `qmrestore` / `pct restore`.
+# Restore: Proxmox UI -> the guest -> Backup, or `qmrestore` / `pct restore`. Restoring
+# both into throwaway guests (no network, never started for dc01) was tested on
+# 2026-11-08: docs/kb/issues/KB-0100-servers-never-backed-up.md has the steps.
+#
+# lab-backup-metrics publishes when each server was last backed up; the BackupMissing
+# alert (roles/monitoring) fires when one is more than 26 hours old or missing.
 
 - name: Is the backup job there?
   ansible.builtin.command: pvesh get /cluster/backup/lab-servers --output-format json
@@ -27,3 +32,24 @@
     (backup_job.stdout | from_json).schedule != '03:30' or
     (backup_job.stdout | from_json).vmid != '105,106'
   changed_when: true
+
+- name: Backup metrics script
+  ansible.builtin.copy:
+    src: lab-backup-metrics
+    dest: /usr/local/libexec/lab-backup-metrics
+    mode: "0755"
+
+- name: Backup metrics units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-backup-metrics.service, lab-backup-metrics.timer]
+  register: backup_metric_units
+
+- name: Backup metrics every 15 minutes
+  ansible.builtin.systemd_service:
+    name: lab-backup-metrics.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ backup_metric_units.changed }}"

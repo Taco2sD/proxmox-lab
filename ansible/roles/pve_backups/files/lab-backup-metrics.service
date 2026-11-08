@@ -1,0 +1,7 @@
+# /etc/systemd/system/lab-backup-metrics.service on pve01 (roles/pve_backups): see
+# /usr/local/libexec/lab-backup-metrics
+[Unit]
+Description=Backup recency metrics for node_exporter
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/lab-backup-metrics
