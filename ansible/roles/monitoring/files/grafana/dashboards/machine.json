@@ -1151,7 +1151,7 @@
    "id": 13,
    "type": "timeseries",
    "title": "Disk I/O",
-   "description": "Reads up, writes down.",
+   "description": "Reads up, writes down. In a container this is pve01's whole disk traffic, not the container's: the kernel counts per device, and a container has no devices of its own, so each line is named for what the device is on pve01. The container's own share is in Storage at the bottom.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -1168,7 +1168,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by (device) (rate(node_disk_read_bytes_total{host=\"$host\"}[$__rate_interval])) > 0",
+     "expr": "(sum by (device) (rate(node_disk_read_bytes_total{host=\"$host\"}[$__rate_interval])) > 0) unless on() lab_guest_config_info{guest=\"$host\",type=\"lxc\"}",
      "refId": "A",
      "legendFormat": "{{device}} read"
     },
@@ -1177,9 +1177,27 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "-sum by (device) (rate(node_disk_written_bytes_total{host=\"$host\"}[$__rate_interval])) < 0",
+     "expr": "(-sum by (device) (rate(node_disk_written_bytes_total{host=\"$host\"}[$__rate_interval])) < 0) unless on() lab_guest_config_info{guest=\"$host\",type=\"lxc\"}",
      "refId": "B",
      "legendFormat": "{{device}} write"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "(sum by (device) (rate(node_disk_read_bytes_total{host=\"$host\"}[$__rate_interval])) > 0) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info) and on() lab_guest_config_info{guest=\"$host\",type=\"lxc\"}",
+     "refId": "C",
+     "legendFormat": "pve01 {{device}} ({{what}}) read"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "(-sum by (device) (rate(node_disk_written_bytes_total{host=\"$host\"}[$__rate_interval])) < 0) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info) and on() lab_guest_config_info{guest=\"$host\",type=\"lxc\"}",
+     "refId": "D",
+     "legendFormat": "pve01 {{device}} ({{what}}) write"
     }
    ],
    "fieldConfig": {
@@ -2451,6 +2469,231 @@
     "orientation": "auto",
     "wideLayout": true,
     "showPercentChange": false
+   }
+  },
+  {
+   "id": 31,
+   "type": "row",
+   "title": "Storage: where this guest's disks live on pve01, and its share of pve01's disk traffic",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 52,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 32,
+   "type": "table",
+   "title": "Its disks on pve01",
+   "description": "Every disk the guest has and what it is on pve01. A container's root is a thin volume in pve01's pool; /srv/iso is a directory of pve01's own root filesystem, bind-mounted read-only; its swap is pve01's swap. Device stack: thin volume (dm-N) -> thin pool (dm-4, its data dm-3) -> pve01's disk (sda). For a bind mount or swap, Size is that whole pve01 device.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 53,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "lab_guest_disk_bytes{guest=\"$host\"}",
+     "refId": "A",
+     "legendFormat": "__auto",
+     "instant": true,
+     "range": false,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "decimals": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "filterFieldsByName",
+     "options": {
+      "include": {
+       "names": [
+        "mount",
+        "source",
+        "chain",
+        "Value"
+       ]
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "mount": 0,
+       "source": 1,
+       "chain": 2,
+       "Value": 3
+      },
+      "renameByName": {
+       "mount": "In the guest",
+       "source": "On pve01",
+       "chain": "Device stack on pve01",
+       "Value": "Size"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 33,
+   "type": "bargauge",
+   "title": "Its volumes' share of pve01's physical disk (this time range)",
+   "description": "Bytes through each of the guest's own volumes over bytes through pve01's disk (sda), which every guest and pve01 share: how much of the physical disk's work is this guest's. Only volumes it owns count; its swap and bind mounts are shared with pve01 and can't be split per guest.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 53,
+    "w": 6,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (device) (increase(node_disk_read_bytes_total{host=\"pve01\"}[$__range]) + increase(node_disk_written_bytes_total{host=\"pve01\"}[$__range])) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info{owner=\"$host\"}) / scalar(sum(increase(node_disk_read_bytes_total{host=\"pve01\",device=\"sda\"}[$__range]) + increase(node_disk_written_bytes_total{host=\"pve01\",device=\"sda\"}[$__range])))",
+     "refId": "A",
+     "legendFormat": "{{device}}: {{what}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "purple",
+        "value": 0.5
+       }
+      ]
+     },
+     "decimals": 1,
+     "min": 0,
+     "max": 1,
+     "noValue": "Not a Proxmox guest"
+    },
+    "overrides": []
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "gradient",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "top",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 34,
+   "type": "timeseries",
+   "title": "Its own volumes' traffic",
+   "description": "Reads up, writes down, measured on pve01 at the guest's own volumes: what this guest itself puts on the disk. Compare the Disk I/O panel above, which for a container is all of pve01.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 53,
+    "w": 6,
+    "h": 8
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (device) (rate(node_disk_read_bytes_total{host=\"pve01\"}[$__rate_interval])) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info{owner=\"$host\"}) > 0",
+     "refId": "A",
+     "legendFormat": "{{device}} ({{what}}) read"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "-sum by (device) (rate(node_disk_written_bytes_total{host=\"pve01\"}[$__rate_interval])) * on (device) group_left (what) max by (device, what) (lab_host_block_device_info{owner=\"$host\"}) < 0",
+     "refId": "B",
+     "legendFormat": "{{device}} ({{what}}) write"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "smooth",
+      "axisSoftMin": 0,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      }
+     },
+     "noValue": "Not a Proxmox guest"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
    }
   }
  ]

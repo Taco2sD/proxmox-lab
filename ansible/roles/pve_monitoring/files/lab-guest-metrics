@@ -14,6 +14,17 @@ on its parent cgroup, above what it can see. Here, both are plain files:
   /sys/fs/cgroup/qemu.slice/<vmid>.scope/    a VM's QEMU process's cgroup
 Every series carries guest (the name, which is the machine's host label elsewhere), vmid
 and type (lxc or qemu). In the cgroup values, 0 means "no limit" (the file says max).
+
+Storage, where a container's view misleads most: its /proc/diskstats is pve01's, so its
+node_exporter reports every disk of pve01, host-wide. From here:
+  lab_host_block_device_info   every pve01 disk device, named for what it is (whose disk,
+                               the thin pool, pve01's root or swap), for labelling those
+  lab_guest_disk_bytes         each guest's disks: where they appear in the guest, what backs
+                               them on pve01 and the device stack under them (thin volume ->
+                               thin pool -> physical disk)
+A guest's own traffic is its own volumes' traffic, from pve01's node_exporter (only that
+guest uses them). Not its cgroup's io.stat: most of a container's writes are written back
+by kernel threads outside its cgroup, and io.stat saw under 1% of mgmt01's.
 """
 import os
 import re
@@ -77,6 +88,85 @@ def isolation(kind, cfg):
     return f"Full VM with its own kernel (KVM, CPU type {cfg.get('cpu', 'kvm64').split(',')[0]})"
 
 
+def blockdev(majmin):
+    """'252:9' -> 'dm-9'."""
+    try:
+        return Path(f"/sys/dev/block/{majmin}").resolve().name
+    except OSError:
+        return None
+
+
+def devname(path):
+    """The device under a path: /dev/pve/vm-106-disk-0 -> dm-9; a directory -> the device of
+    the filesystem it is on."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    rdev = st.st_rdev if Path(path).is_block_device() else st.st_dev
+    return blockdev(f"{os.major(rdev)}:{os.minor(rdev)}")
+
+
+def stack(dev):
+    """The devices under a device, down to the physical disk: dm-9 -> dm-4 -> dm-3 -> sda.
+    Through a thin pool, follow its data (tdata), not its metadata (tmeta)."""
+    chain, seen = [dev], {dev}
+    while True:
+        base = Path("/sys/class/block") / chain[-1]
+        if (base / "partition").exists():                 # sda3 -> sda
+            chain[-1] = base.resolve().parent.name
+            break
+        slaves = sorted(p.name for p in (base / "slaves").glob("*")) if (base / "slaves").is_dir() else []
+        if not slaves:
+            break
+        nxt = next((s for s in slaves if not (read(Path("/sys/class/block") / s / "dm" / "name") or "").endswith("_tmeta")),
+                   slaves[0])
+        if nxt in seen:
+            break
+        chain.append(nxt)
+        seen.add(nxt)
+    return chain
+
+
+def what_is(dm, names):
+    """What a pve01 device is, from its device-mapper name (pve-vm--106--disk--0)."""
+    m = re.match(r"pve-(vm|base)--(\d+)--(disk--(\d+)|cloudinit|state--suspend--.*)$", dm)
+    if m:
+        owner = names.get(m.group(2), f"guest {m.group(2)}")
+        part = m.group(3)
+        what = ("cloud-init disk" if part == "cloudinit" else "hibernation image" if part.startswith("state")
+                else f"disk {m.group(4)}")
+        return owner, f"{owner}: {'golden image ' if m.group(1) == 'base' else ''}{what}"
+    fixed = {"pve-root": "pve01's root filesystem", "pve-swap": "pve01's swap",
+             "pve-data": "thin pool pve/data", "pve-data-tpool": "thin pool pve/data (every guest disk is in it)",
+             "pve-data_tdata": "thin pool pve/data: its data", "pve-data_tmeta": "thin pool pve/data: its metadata"}
+    return "pve01", fixed.get(dm, f"pve01's disk {dm} (Hyper-V virtual disk; everything is on it)")
+
+
+def guest_disks(kind, cfg):
+    """(where it shows in the guest, what backs it on pve01, pve01 device) per disk."""
+    out = []
+    for key, val in cfg.items():
+        src = val.split(",")[0]
+        if kind == "lxc" and (key == "rootfs" or re.fullmatch(r"mp\d+", key)):
+            where = "/" if key == "rootfs" else (re.search(r"mp=([^,]+)", val) or [None, key])[1]
+            ro = " (read-only)" if "ro=1" in val else ""
+            if src.startswith("/"):                       # bind mount of a pve01 directory
+                out.append((where, f"pve01 directory {src}{ro}", devname(src)))
+            elif ":" in src:
+                out.append((where, src + ro, devname(f"/dev/pve/{src.split(':', 1)[1]}")))
+        elif kind == "qemu" and re.fullmatch(r"(scsi|virtio|sata|ide|efidisk|tpmstate)\d+", key) and ":" in src:
+            if "media=cdrom" in val and "cloudinit" not in src:
+                continue
+            where = f"{key} (cloud-init)" if "cloudinit" in src else key
+            out.append((where, src, devname(f"/dev/pve/{src.split(':', 1)[1]}")))
+    if kind == "lxc" and int(cfg.get("swap", 512)) > 0:
+        swaps = (read(Path("/proc/swaps")) or "").splitlines()[1:]
+        if swaps:
+            out.append(("swap", "pve01's swap", devname(swaps[0].split()[0])))
+    return [d for d in out if d[2]]
+
+
 class Out:
     def __init__(self):
         self.metrics = {}
@@ -97,6 +187,11 @@ class Out:
 
 def main():
     o = Out()
+    names, mounts = {}, {}                            # vmid -> name; device -> "guest: where"
+    for kind, (confdir, _) in KINDS.items():
+        for conf in confdir.glob("*.conf"):
+            cfg = config(conf)
+            names[conf.stem] = cfg.get("hostname" if kind == "lxc" else "name", conf.stem)
     for kind, (confdir, cgdir) in KINDS.items():
         for conf in sorted(confdir.glob("*.conf")):
             vmid = conf.stem
@@ -118,6 +213,15 @@ def main():
                   L, int(cfg.get("cpuunits", 100)))
             o.add("lab_guest_config_cpu_limit_cores", "Hard CPU cap in cores (cpulimit; 0: none).",
                   L, float(cfg.get("cpulimit", 0)))
+
+            for where, source, dev in guest_disks(kind, cfg):
+                chain = stack(dev)
+                if where != "swap" and not source.startswith("pve01"):   # its own volume, not a share of pve01's
+                    mounts.setdefault(dev, f"{name}: {where}")
+                o.add("lab_guest_disk_bytes", "Each guest disk: where it shows in the guest, what backs it on "
+                      "pve01, and the pve01 devices it is stacked on (value: its size).",
+                      {**L, "mount": where, "source": source, "device": dev,
+                       "chain": " -> ".join(chain)}, int(read(Path("/sys/class/block") / dev / "size") or 0) * 512)
 
             d = cgdir(vmid)
             if not d.is_dir():                            # not running: no cgroup
@@ -158,6 +262,15 @@ def main():
                         o.add("lab_guest_cgroup_pressure_seconds_total", "Pressure stall time: some = at least one "
                               "task waited on the resource, full = all did.",
                               {**L, "resource": res, "kind": kind_}, int(total.group(1)) / 1e6, "counter")
+    for dev in sorted(p.name for p in Path("/sys/class/block").iterdir()):
+        base = Path("/sys/class/block") / dev
+        if dev.startswith(("loop", "ram", "zram", "nbd", "sr")) or (base / "partition").exists():
+            continue                                      # node_exporter leaves these out too
+        owner, what = what_is(read(base / "dm" / "name") or dev, names)
+        if dev in mounts:
+            what = mounts[dev]
+        o.add("lab_host_block_device_info", "Every pve01 disk device and what it is (value always 1).",
+              {"device": dev, "owner": owner, "what": what}, 1)
     tmp = OUT.with_name(f".{OUT.name}.tmp")
     tmp.write_text(o.text())
     os.chmod(tmp, 0o644)
