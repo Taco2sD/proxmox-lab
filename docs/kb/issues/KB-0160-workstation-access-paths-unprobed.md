@@ -55,7 +55,9 @@ workstation scrape targets do.
   (`up{job="workstations"} == 1`). A machine that is down entirely is TargetDown's;
   reboots and hibernation (the target drops out within about a minute and a half) don't
   fire. ServiceProbeFailed now covers only the fixed service list (`job="probes"`).
-- Dashboard: an "Access paths" timeline in the Lab overview's Workstations row.
+- Dashboard: an "Access paths" timeline in the Lab overview's Workstations row. The
+  "Service checks" panel is scoped to `job="probes"` (it queried every `probe_success`,
+  so the per-machine rows showed up there too on the first render).
 
 ## Verification
 

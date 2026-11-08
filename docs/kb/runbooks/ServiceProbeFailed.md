@@ -25,6 +25,9 @@ expired certificate.
 | Kerberos (dc01) | 10.10.10.5:88, TCP connect | `samba-ad-dc` |
 | DNS (dc01) | an A query for dc01.ad.lab.internal at 10.10.10.5 | `samba-ad-dc` (its internal DNS) |
 
+Only job `probes` (the fixed list above). The per-workstation probes (SSH, Desktop
+console; job `probes-access`) alert as [AccessPathDown](AccessPathDown.md).
+
 ## First five minutes
 
 1. Which probe, since when: Lab overview, Service checks panel.

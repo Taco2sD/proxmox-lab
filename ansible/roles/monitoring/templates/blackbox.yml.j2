@@ -55,3 +55,32 @@ modules:
       validate_answer_rrs:
         # Single quotes: YAML passes the backslashes through to the regular expression
         fail_if_not_matches_regexp: ['\tIN\tA\t{{ dc01_ip | regex_escape }}$']
+
+  # The ways people reach a workstation (prometheus.yml: probes-access, targets from
+  # lab-metrics). Both stop at the banner: no login, no VNC handshake, so nobody's open
+  # session notices.
+  #
+  # SSH (also what the browser terminal uses): sshd says "SSH-2.0-..." first. Sending our
+  # own identification back makes sshd log one tidy "Connection closed ... [preauth]"
+  # line instead of a kex_exchange_identification error.
+  ssh_banner:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      query_response:
+        - expect: "^SSH-2.0-"
+        - send: "SSH-2.0-lab-probe\r"
+
+  # The Desktop button's path: pve01's console relay (roles/pve_console) starts
+  # `qm vncproxy` for the connection, and QEMU's VNC server greets with "RFB 003.008".
+  # The probe never sends RFB's ClientInit, which is when QEMU would apply its
+  # shared/exclusive policy, so an open desktop session isn't disturbed. A machine that
+  # isn't running is refused by the relay at once (no banner: probe fails in ~20 ms).
+  rfb_banner:
+    prober: tcp
+    timeout: 8s
+    tcp:
+      preferred_ip_protocol: ip4
+      query_response:
+        - expect: "^RFB 003"

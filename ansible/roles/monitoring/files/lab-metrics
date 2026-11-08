@@ -3,12 +3,17 @@
 /usr/local/libexec/lab-metrics on mgmt01 (roles/monitoring), run every 30 seconds by
 lab-metrics.timer. Two outputs:
 
-1. Service discovery: /etc/lab-monitoring/prometheus/targets/workstations.json,
-   Prometheus's file_sd list of the workstations to scrape. A machine is listed while it is running
-   and configured: the fleet (inventory/workstations/) and every portal machine that
-   is ready. New ones appear within a minute of their first configuration run; deleted,
-   hibernated or stopped ones drop out, so they don't raise "down" alerts, and their
-   dashboard panels go away with them (Grafana's panels repeat over what is listed).
+1. Service discovery, two file_sd lists in /etc/lab-monitoring/prometheus/targets/:
+   - workstations.json: the workstations to scrape (node_exporter, :9100)
+   - access.json: the ways people reach them, probed by blackbox (job probes-access):
+     SSH on every machine (the browser terminal is SSH too) and, for desktop machines,
+     the Desktop button's path: pve01's console relay, port console_port_base + VM ID
+     (roles/pve_console)
+   A machine is listed while it is running and configured: the fleet
+   (inventory/workstations/) and every portal machine that is ready. New ones appear
+   within a minute of their first configuration run; deleted, hibernated or stopped ones
+   drop out, so they don't raise "down" alerts, and their dashboard panels go away with
+   them (Grafana's panels repeat over what is listed).
 
 2. Lab metrics, through node_exporter's textfile collector
    (/var/lib/prometheus/node-exporter/lab.prom, scraped as part of mgmt01): every
@@ -30,6 +35,7 @@ sys.path.insert(0, "/usr/local/lib/lab")
 import lablib as L  # noqa: E402
 
 TARGETS = Path("/etc/lab-monitoring/prometheus/targets/workstations.json")
+ACCESS = Path("/etc/lab-monitoring/prometheus/targets/access.json")
 TEXTFILE = Path("/var/lib/prometheus/node-exporter/lab.prom")
 MIB = 1024 * 1024
 
@@ -107,7 +113,7 @@ def main():
     records = L.guests()
     machines = L.desired()
 
-    targets, info, configured, session, memory = [], [], [], [], []
+    targets, access, info, configured, session, memory = [], [], [], [], [], []
     for host, spec in sorted(machines.items()):
         record = records.get(host, {})
         role = spec["role"]
@@ -125,6 +131,13 @@ def main():
             session.append(({"host": host}, activity[spec["ip"]]))
         if power == "running" and state in ("ready", "fleet"):
             targets.append({"targets": [f"{spec['ip']}:9100"], "labels": labels})
+            # The module label picks the blackbox module (prometheus.yml: probes-access)
+            access.append({"targets": [f"{spec['ip']}:22"],
+                           "labels": {**labels, "probe": "SSH", "module": "ssh_banner"}})
+            if kind == "desktop":
+                relay = f"{cfg['pve01_ip']}:{cfg['console_port_base'] + int(spec['vmid'])}"
+                access.append({"targets": [relay],
+                               "labels": {**labels, "probe": "Desktop console", "module": "rfb_banner"}})
 
     # The portal's admission control, the same sum lablib.admission() makes
     active = [r for r in records.values() if not r.get("rejected") and r.get("state") != "removing"]
@@ -173,6 +186,7 @@ def main():
     m.add("lab_metrics_last_run_timestamp_seconds", "When lab-metrics last ran.", [({}, now)])
 
     write_atomic(TARGETS, json.dumps(targets, indent=1) + "\n")
+    write_atomic(ACCESS, json.dumps(access, indent=1) + "\n")
     write_atomic(TEXTFILE, m.text())
 
 

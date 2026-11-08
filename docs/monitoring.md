@@ -27,7 +27,9 @@ dashboards are JSON in git, deployed like everything else.
  (roles/pve_monitoring)                         storage pools; read-only token
  mgmt01                   blackbox              the services probed the way a user meets them:
                                                 portal, Guacamole, Grafana, Proxmox API, the
-                                                VPS's sign-in page, LDAPS, Kerberos, AD DNS
+                                                VPS's sign-in page, LDAPS, Kerberos, AD DNS;
+                                                and per workstation, SSH and (desktops) the
+                                                Desktop button's path via pve01's console relay
  mgmt01                   lab-metrics           the lab's own records: owner, role and power
                           (textfile collector)  of every workstation, last configuration run,
                                                 memory budget, reconciler, images, operations
@@ -45,6 +47,13 @@ build, with labels `host`, `owner`, `role`, `kind`, `vmid`. Prometheus re-reads 
 by itself. The Lab overview's per-workstation panels repeat over whatever is in that
 list, so they appear and disappear with the machines; the Machine dashboard's picker
 is the same list plus the servers.
+
+From the same records it writes a second list, `access.json`: the ways people reach each
+of those machines. blackbox probes them every minute (job `probes-access`): SSH on every
+workstation (the browser terminal is SSH too) and, on desktop machines, the Desktop
+button's path through pve01's console relay. Both probes stop at the banner, so nobody's
+open session notices. The Lab overview shows them as "Access paths"; a path that fails
+while its machine is up raises AccessPathDown (docs/kb/issues/KB-0160-workstation-access-paths-unprobed.md).
 
 Hibernated and stopped machines aren't targets (an "is it down?" alert for a machine
 that's meant to be off is noise). They still show: in the workstation table, as

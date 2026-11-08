@@ -91,3 +91,28 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: 127.0.0.1:9115
+
+  # The ways people reach each workstation: SSH (and so the browser terminal) on every
+  # one, and the Desktop button's path (pve01's console relay) on desktop machines.
+  # lab-metrics writes the list from the same records as the workstation targets, so it
+  # follows machines as they're built, hibernated and deleted; each target carries its
+  # machine's host/owner/role/kind labels and a module label (blackbox.yml).
+  # Every 60 seconds, not 15: each console probe makes pve01 start `qm vncproxy` (a Perl
+  # program: ~370 ms of CPU, ~120 MB while it runs). Once a minute per desktop is noise;
+  # four times a minute across a dozen desktops wouldn't be. The alert (AccessPathDown)
+  # waits 3 minutes anyway.
+  - job_name: probes-access
+    scrape_interval: 60s
+    scrape_timeout: 10s
+    metrics_path: /probe
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/access.json]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [module]
+        target_label: __param_module
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
