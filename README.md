@@ -1,18 +1,52 @@
 # Linux workstation provisioning lab
 
-A small, self-contained lab that provisions Linux workstations end to end, the way a
-studio IT team might: golden images built by network install, Active Directory join
-without admin credentials, role-based configuration from AD, DHCP-driven DNS, and a git
-repository that the lab follows on its own once a change passes CI. Nobody types or
-sees a secret along the way.
+A prototype of a studio's self-service Linux workstation platform, built in four days on
+one Windows 11 PC (Hyper-V → Proxmox VE → the lab). Someone asks for a workstation for
+their role; a few minutes later it exists, built from a golden image, joined to Active
+Directory, configured for that role, and open in their browser. The servers and the
+fleet follow this repository through CI, and Prometheus and Grafana watch all of it.
+A small VPS is the public front door; the lab itself accepts no inbound connections.
 
-On top of that sits a **self-service portal**: a visitor picks a username and a role,
-watches the lab build their workstation (a few minutes), and opens a terminal on it in
-the browser. Lab admins see every workstation on the portal's admin page, delete any of
-them with a full clean-up, and see everything the lab did in its Activity log.
+I built it with an AI coding assistant: I set the direction, made the design calls and
+checked the changes against the running lab.
 
-It runs nested on a single Windows 11 PC: Hyper-V → Proxmox VE → the lab VMs. A small
-VPS is its public front door; the lab itself accepts no inbound connections.
+**See it:** [lab.radicallydecent.com](https://lab.radicallydecent.com) (behind a sign-in
+page; ask me for access).
+
+**Start here**, problems found in the running lab, with how each was found, fixed and proved:
+
+- [KB-0001](docs/kb/issues/KB-0001-console-relay-failed-units.md) and
+  [KB-0007](docs/kb/issues/KB-0007-per-unit-failed-alert-storm.md): a browser retrying a
+  sleeping machine piled up failed units on the hypervisor, and the first alert rule
+  turned them into ~1,700 alerts.
+- [KB-0161](docs/kb/issues/KB-0161-signal-reload-blocks-restart-after-reboot.md):
+  reloading containers with `docker kill -s HUP` marks them stopped by hand, so
+  `restart: unless-stopped` left monitoring down after a reboot.
+- [KB-0100](docs/kb/issues/KB-0100-servers-never-backed-up.md): the docs promised
+  nightly backups that didn't exist.
+- [KB-0156](docs/kb/issues/KB-0156-needrestart-ubuntu-auto-restart.md): Ubuntu's
+  needrestart would restart services by itself after every unattended update.
+- [KB-0150](docs/kb/issues/KB-0150-apt-lock-contention-first-boot.md): first boot raced
+  unattended-upgrades for apt's lock.
+
+| Lab overview | One machine: mgmt01, a container |
+|---|---|
+| ![Lab overview](docs/img/lab-overview.png) | ![Machine dashboard](docs/img/machine-container.png) |
+
+## A ten-minute tour
+
+1. **Ask for a workstation.** On the portal, pick a role and watch the build: AD account,
+   DHCP reservation, clone, first boot, AD join, role configuration. Then open its
+   terminal (or, for a desktop role, its desktop) in the browser.
+2. **Run the lab.** `/admin` lists every machine with delete and full clean-up, an
+   Activity log of everything the lab did, and links to every other page.
+3. **Watch it.** On Grafana's Lab overview the new machine appears within a minute. Its
+   Machine page says what it is (VM or container), the limits pve01 enforces on it, and
+   its share of pve01's disk.
+4. **Change it through git.** A commit to `main` passes CI, `stable` moves, and the
+   reconciler deploys it within a minute (Lab overview → Lab automation). Destroying a
+   machine waits for an admin's approval.
+5. **Read one incident** from the list above.
 
 ## How a workstation comes to exist
 
@@ -87,8 +121,8 @@ flowchart LR
 | `dc01` | Samba AD DC (`AD.LAB.INTERNAL`), DNS, dnsmasq DHCP | RFC2307 Unix IDs in AD; DHCP registers clients in DNS; LDAPS with a Let's Encrypt certificate |
 | `mgmt01` | Unprivileged LXC: the `lab` runner and reconciler, nginx, the portal, Apache Guacamole and Prometheus + Grafana (Docker), TFTP | Runs OpenTofu and Ansible; Secure Boot PXE (signed shim + GRUB) for image builds |
 | `pve01` | Proxmox VE, nested in Hyper-V | VMs managed through its API (`terraform@pve`, not root); dials the WireGuard tunnel to the VPS; nightly backups of dc01 and mgmt01 |
-| fleet | Long-lived workstations, one file each in `inventory/workstations/` | Changed through git |
-| guests `ws-<user>` | Workstations built through the portal | One owner each, up to four; runtime records on mgmt01 |
+| fleet | Long-lived workstations, one file each in `inventory/workstations/` | Changed through git (empty at the moment: the live machines are portal machines) |
+| portal machines | Workstations built through the portal: `ws<NN>` for staff, `ws-<user>` for visitors | Runtime records on mgmt01, not git; admitted against a memory budget, at most 12 |
 | VPS | nginx, oauth2-proxy, acme-dns ([vps/](vps/README.md)) | Public names `lab.` and `pve.radicallydecent.com` |
 
 ## Design decisions
@@ -148,7 +182,8 @@ flowchart LR
 ## Repository layout
 
 ```text
-catalog/        workstation definitions (artist, programmer): size, packages, who may log in
+catalog/        workstation roles (artist, audio, designer, devbox, infra, producer,
+                programmer): size, packages, who may log in
 inventory/      workstations/: the fleet, one file per machine
 terraform/      OpenTofu: modules/workstation (the VM), fleet/ and guest/ (the two tiers)
 ansible/        local.yml: what workstations apply to themselves (ansible-pull)

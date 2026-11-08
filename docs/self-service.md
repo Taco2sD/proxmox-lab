@@ -65,7 +65,7 @@ others (`guest_memory_mb`, `lablib.admission`), not by counting machines.
 machines (the worker calls Proxmox with its API token). Hibernate is Proxmox's suspend
 to disk, VMware's "suspend": the memory is written to the VM's storage and the VM stops,
 freeing its RAM; Start brings it back exactly where it was (chrony steps the clock).
-Every workstation reports every five minutes while anyone is connected over SSH or RDP
+Every workstation reports every five minutes while anyone is on it over SSH or at an active desktop
 (roles/base: lab-activity); staff machines with no report for `idle_hibernate_minutes`
 are hibernated by the worker.
 

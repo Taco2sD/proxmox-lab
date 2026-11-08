@@ -37,7 +37,7 @@
   register: osc_divert
   changed_when: "'Adding' in osc_divert.stdout"
 
-- name: Activity beacon (someone is connected over SSH or RDP)
+- name: Activity beacon (someone is on it over SSH or at its desktop)
   ansible.builtin.copy:
     dest: /usr/local/libexec/lab-activity
     content: |

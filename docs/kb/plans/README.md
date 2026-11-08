@@ -26,9 +26,7 @@ back out*.
 done), `created`, `issues`, `patterns`, `components`, and optionally `owner`. Sections: Goal,
 Why, Steps (a checklist), Risks and rollback, Done when. `tools/kb.py check` enforces this.
 
-## For agents
+## Before adding a plan
 
-Before proposing a new plan, read the existing ones: extend a plan whose cluster fits
-rather than starting a parallel one. Base each step on evidence in the linked issues, not
-on general advice. Don't execute a step marked as the user's call (anything on the Windows
-host, deleting data, network changes that could lock people out) without asking.
+Read the existing ones and extend a plan whose cluster fits rather than starting a
+parallel one. Base each step on evidence in the linked issues, not on general advice.

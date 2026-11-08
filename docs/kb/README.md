@@ -1,7 +1,7 @@
 # Knowledge base
 
 Every problem this lab has had, why it happened, how it was fixed and what now stops it coming
-back, written so the next person (or agent) can recognise the next one at a glance.
+back, written so the next person can recognise the next one at a glance.
 
 | Start here | For |
 |---|---|
@@ -133,44 +133,34 @@ components: [patching]
 ## Done when
 ```
 
-## For agents (LLM or otherwise)
-
-Precise rules, so several agents can work on the lab at once and the knowledge keeps adding up.
+## Working on the lab
 
 **Before changing anything**
-1. Read [kb.json](kb.json) (the whole graph in one document) or [INDEX.md](INDEX.md). Find the
+1. Read [INDEX.md](INDEX.md) (or [kb.json](kb.json), the same graph as data). Find the
    components you're about to touch and read their issues: most mistakes here have been made once.
-2. Facing a failure, search for its pattern first (`grep -ril '<symptom words>' docs/kb/patterns`)
-   and follow the pattern's "How to spot it" before forming theories. If a runbook exists for the
-   alert, start there.
+2. Facing a failure, search the patterns first (`grep -ril '<symptom words>' docs/kb/patterns`)
+   and follow "How to spot it" before forming theories. If the alert has a runbook, start there.
 3. Read docs/operations.md (how changes reach the lab) and docs/boundaries.md (which tool owns what).
 
 **Changing the live lab**
 - Changes go through git: commit to `main`, CI runs tools/check, `stable` moves, the reconciler
-  deploys servers and workstations pull. Don't edit deployed files by hand except to verify a fix
-  you're about to commit, and then make the role do exactly the same.
-- Don't reboot dc01, pve01 or mgmt01, delete VMs, accounts or data, or touch the VPS beyond the
-  lab's own files without the owner's explicit go-ahead. Split proposing and doing: say what you'd
-  run, wait, then run it.
+  deploys servers and workstations pull. Edit deployed files by hand only to verify a fix you're
+  about to commit, and make the role do exactly the same.
+- Rebooting dc01, pve01 or mgmt01, or deleting VMs, accounts or data, is a planned change, not a
+  side effect of a fix.
 - Pause the reconciler while testing a deploy by hand (`touch /var/lib/lab/reconcile.paused`),
-  and remove the file when done. Never leave it paused.
+  and remove the file when done.
 - Verify with real output (a command, a query, a screenshot), and put that output in the issue.
-- Nothing private in the repository: it's public. No secrets, no real people's names.
+- The repository is public: no secrets, no real people's names.
 
 **Writing it down**
-- One issue page per problem; take the next free id (`ls docs/kb/issues | tail`). Several agents
-  at once: agree on id ranges first.
-- Link a pattern, or write a new one if none fits (check the folder first; a near-duplicate pattern
-  is worse than a slightly broad one).
-- Name `found_by` honestly: a problem you stumbled on while doing something else is
+- One issue page per problem, with the next free id (`ls docs/kb/issues | tail`).
+- Link a pattern, or write a new one if none fits.
+- Name `found_by` honestly: a problem stumbled on while doing something else is
   `investigation`, not `monitoring`, even if monitoring could have caught it.
-- Never edit between `<!-- kb:generated:start -->` and `<!-- kb:generated:end -->`, nor INDEX.md
+- Don't edit between `<!-- kb:generated:start -->` and `<!-- kb:generated:end -->`, nor INDEX.md
   or kb.json: run `python3 tools/kb.py build`, then `python3 tools/kb.py check`.
 - A new alert rule needs its runbook page and `runbook_url` in the same commit (check enforces it).
-- New component? Add it to components.yml with its roles and `depends_on`; never rename an id.
-
-**Turning clusters into plans**
-- In INDEX.md, a pattern or component with several issues, or open issues of severity high or
-  critical, is a plan candidate. A plan lists the issues it closes, the patterns it removes, and
-  steps small enough to verify one at a time, with rollback for each risky one.
-- When a plan's steps are done, set its issues' status, link the commits, and mark the plan done.
+- New component? Add it to components.yml with its roles and `depends_on`; don't rename an id.
+- A pattern or component with several issues, or an open issue of high severity, is a candidate
+  for a plan (plans/).
