@@ -22,8 +22,8 @@ during manual maintenance (docs/operations.md); forgetting to unpause is the ris
 ## Common causes
 
 - Maintenance finished, unpause forgotten.
-- A manual test of uncommitted changes (a person or an agent pauses so the reconciler
-  doesn't deploy at the same time) that ended without cleaning up.
+- A manual test of uncommitted changes (paused so the reconciler doesn't deploy at the
+  same time) that ended without cleaning up.
 
 ## Escalate / fix
 
