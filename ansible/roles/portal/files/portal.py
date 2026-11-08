@@ -450,6 +450,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, render_page("my.html"), "text/html")
         if path == "/mail":
             return self.send(200, (HERE / "mail.html").read_text(encoding="utf-8"), "text/html")
+        if path == "/slides":
+            return self.send(200, (HERE / "slides.html").read_text(encoding="utf-8"), "text/html")
         if path == "/api/mail":
             return self.send(200, L.read_json(L.MAILBOX) or {"emails": []})
         if path == "/api/welcome/lookup":

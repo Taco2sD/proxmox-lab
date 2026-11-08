@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab walkthrough</title>
+<style>
+  :root { --bg: #f6f5f1; --ink: #1d2430; --soft: #556070; --line: #dcd8ce; --accent: #b4561a; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--ink);
+    font: 400 clamp(16px, 1.7vw, 30px)/1.5 system-ui, "Segoe UI", Roboto, sans-serif; }
+  section { display: none; height: 100vh; padding: 7vh 8vw 10vh; flex-direction: column; gap: 3vh; }
+  section.on { display: flex; }
+  section.title { justify-content: center; }
+  h1 { font-size: 2.6em; line-height: 1.1; }
+  h2 { font-size: 1.7em; line-height: 1.2; }
+  .sub { font-size: 1.15em; color: var(--soft); max-width: 40em; }
+  ul { padding-left: 1.2em; display: flex; flex-direction: column; gap: 1.2vh; max-width: 48em; }
+  li::marker { color: var(--accent); }
+  b { font-weight: 600; }
+  .muted { color: var(--soft); }
+  table { border-collapse: collapse; max-width: 52em; }
+  td { padding: 0.5em 1.2em 0.5em 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  ol { padding-left: 1.4em; display: flex; flex-direction: column; gap: 1.2vh; }
+  code { font: 0.9em ui-monospace, Consolas, monospace; }
+  footer { position: fixed; bottom: 3vh; left: 8vw; right: 8vw; display: flex; justify-content: space-between;
+    font-size: 0.6em; color: var(--soft); }
+  #bar { position: fixed; top: 0; left: 0; height: 4px; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body>
+<div id="bar"></div>
+
+<section class="title">
+  <h1>Linux workstation lab</h1>
+  <p class="sub">A prototype of a self-service workstation platform for a studio’s IT team.
+    Built in four days on one Windows PC.</p>
+</section>
+
+<section>
+  <h2>What’s running</h2>
+  <table>
+    <tr><td>pve01</td><td>Proxmox VE, nested in Hyper-V. Hosts everything below.</td></tr>
+    <tr><td>dc01</td><td>Samba Active Directory domain controller. Also DNS and DHCP.</td></tr>
+    <tr><td>mgmt01</td><td>Management container: the portal, the automation, Prometheus, Grafana, Guacamole.</td></tr>
+    <tr><td>Workstations</td><td>Ubuntu desktops and headless dev boxes, built on request. Seven roles.</td></tr>
+    <tr><td>VPS</td><td>The public entry point with the sign-in page. Connects in over a WireGuard tunnel;
+      the lab itself accepts no inbound connections.</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Requesting a workstation</h2>
+  <p class="muted">Someone picks a role on the portal. A few minutes later:</p>
+  <ol>
+    <li>An AD user account and computer account are created.</li>
+    <li>A DHCP reservation gives it a fixed address and name.</li>
+    <li>Proxmox clones the golden image, sized for the role.</li>
+    <li>On first boot it joins the domain by itself.</li>
+    <li>Ansible applies the role’s packages and settings.</li>
+    <li>It opens in the browser (terminal or desktop via Guacamole), or over SSH.</li>
+  </ol>
+  <p class="muted">New hires can also onboard themselves at /welcome with a one-time sign-up link.</p>
+</section>
+
+<section>
+  <h2>What happens automatically</h2>
+  <ul>
+    <li><b>Domain join</b> with a one-time password. No admin credentials ever go on the machine.</li>
+    <li><b>DNS records</b> are created from the DHCP lease and removed when the machine is deleted.</li>
+    <li><b>Configuration</b> comes from the machine’s AD group. It re-checks against git every 30 minutes.</li>
+    <li><b>Monitoring</b> picks up new machines within a minute, with SSH and desktop checks. No manual setup.</li>
+    <li><b>Hibernated or deleted</b> machines drop out of monitoring without false alarms.</li>
+    <li><b>Idle machines</b> hibernate after 48 hours to free memory.</li>
+    <li><b>Deleting</b> removes the VM, AD accounts, DHCP reservation and DNS records together.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Monitoring</h2>
+  <ul>
+    <li><b>Lab overview</b> in Grafana: alerts, service checks, memory and disk, every machine.</li>
+    <li><b>Machine page</b>: shows whether it’s a VM or a container, the CPU and memory limits Proxmox
+      puts on it, and how much of the host’s disk it uses.</li>
+    <li><b>Service checks</b> test the portal, Guacamole, AD, DNS and the sign-in page the way a user would.</li>
+    <li><b>Every alert</b> links to a runbook. CI rejects an alert rule that doesn’t have one.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Changes go through git</h2>
+  <ul>
+    <li>Commit to <code>main</code> → CI checks it → <code>stable</code> moves forward.</li>
+    <li>The servers deploy <code>stable</code> automatically within a minute. Workstations pull it themselves.</li>
+    <li>Dashboards, alert rules and runbooks are in the same repo and deploy the same way.</li>
+    <li>Deleting a machine waits for an admin’s approval, even if a commit asks for it.</li>
+    <li>The admin page caps machines with a memory budget (max 12) and logs every action.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>What I learned</h2>
+  <ul>
+    <li>Every problem found while building it is written up in the knowledge base:
+      71 issues, each with cause, fix and proof.</li>
+    <li>Example: reloading Docker containers with a signal marked them as manually stopped,
+      so monitoring stayed down after a reboot.</li>
+    <li>Example: the first “failed service” alert rule fired about 1,700 alerts at once.</li>
+  </ul>
+  <p class="muted">github.com/Taco2sD/proxmox-lab</p>
+</section>
+
+<footer><span>← → or click to move</span><span id="n"></span></footer>
+<script>
+  const s = [...document.querySelectorAll("section")];
+  let i = Math.min(Math.max(parseInt(location.hash.slice(1)) - 1 || 0, 0), s.length - 1);
+  const show = () => {
+    s.forEach((x, k) => x.classList.toggle("on", k === i));
+    document.getElementById("n").textContent = `${i + 1} / ${s.length}`;
+    document.getElementById("bar").style.width = `${(i + 1) / s.length * 100}%`;
+    history.replaceState(null, "", `#${i + 1}`);
+  };
+  const go = d => { i = Math.min(Math.max(i + d, 0), s.length - 1); show(); };
+  addEventListener("keydown", e => {
+    if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) go(1);
+    if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) go(-1);
+    if (e.key === "Home") { i = 0; show(); }
+    if (e.key === "End") { i = s.length - 1; show(); }
+  });
+  addEventListener("click", e => go(e.clientX < innerWidth / 3 ? -1 : 1));
+  show();
+</script>
+</body>
+</html>
