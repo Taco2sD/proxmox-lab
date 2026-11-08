@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""/usr/local/libexec/lab-restart-metrics on every lab machine (roles/patching), run
+every 15 minutes by lab-restart-metrics.timer: what still runs old code after an update,
+as metrics for node_exporter's textfile collector.
+
+A security update replaces files on disk; processes that loaded the old library keep
+running it until they restart, so the fix isn't in effect yet. needrestart finds them
+(processes mapping deleted files, interpreters, the kernel). It runs here in batch mode
+(-b) and list-only (-r l): it reports, never restarts. Restarts are a person's decision
+(docs/kb/issues/KB-0155-patched-but-not-restarted.md). The ServicesNeedRestart alert and
+the dashboards read what this writes.
+
+needrestart -b prints lines such as
+    NEEDRESTART-KCUR: 7.0.0-42-generic     running kernel
+    NEEDRESTART-KEXP: 7.0.0-43-generic     newest installed kernel
+    NEEDRESTART-KSTA: 3                    0 unknown, 1 current, 2 ABI-compatible, 3 newer version
+    NEEDRESTART-SVC: dbus.service          a service running old code
+    NEEDRESTART-CONT: LXC 106              a container running old code
+    NEEDRESTART-SESS: alice @ session #4   a user session running old code
+In a container (mgmt01) there are no kernel lines: the kernel is the host's.
+"""
+import os
+import subprocess
+import sys
+import time
+
+OUT = "/var/lib/prometheus/node-exporter/needrestart.prom"
+
+
+def esc(value):
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\n")
+
+
+def main():
+    # node_exporter (roles/node_exporter) creates the directory; on a new machine this
+    # role runs first, so until then there is nobody to report to
+    if not os.path.isdir(os.path.dirname(OUT)):
+        return 0
+    lines, ok = [], 1
+    try:
+        run = subprocess.run(["needrestart", "-b", "-r", "l"], capture_output=True, text=True, timeout=300)
+        lines = run.stdout.splitlines()
+        ok = 1 if run.returncode == 0 else 0
+    except (OSError, subprocess.TimeoutExpired):
+        ok = 0
+    found = {}
+    for line in lines:
+        key, sep, value = line.partition(": ")
+        if sep and key.startswith("NEEDRESTART-"):
+            found.setdefault(key[len("NEEDRESTART-"):], []).append(value.strip())
+    services = sorted(set(found.get("SVC", [])))
+    kernel_status = int(found["KSTA"][0]) if found.get("KSTA", [""])[0].isdigit() else 0
+    out = [
+        "# HELP needrestart_service A service still running code an update replaced (value always 1).",
+        "# TYPE needrestart_service gauge",
+        *[f'needrestart_service{{unit="{esc(s)}"}} 1' for s in services],
+        "# HELP needrestart_services Services still running code an update replaced.",
+        "# TYPE needrestart_services gauge",
+        f"needrestart_services {len(services)}",
+        "# HELP needrestart_containers Containers still running code an update replaced.",
+        "# TYPE needrestart_containers gauge",
+        f"needrestart_containers {len(found.get('CONT', []))}",
+        "# HELP needrestart_sessions User sessions still running code an update replaced.",
+        "# TYPE needrestart_sessions gauge",
+        f"needrestart_sessions {len(found.get('SESS', []))}",
+        "# HELP needrestart_kernel_status 0 unknown (or a container), 1 running the newest kernel, "
+        "2 an ABI-compatible update is installed, 3 a newer kernel version is installed.",
+        "# TYPE needrestart_kernel_status gauge",
+        f"needrestart_kernel_status {kernel_status}",
+    ]
+    if found.get("KCUR"):
+        expected = (found.get("KEXP") or found["KCUR"])[0]
+        out += ["# HELP needrestart_kernel_info The running kernel and the newest installed one (value always 1).",
+                "# TYPE needrestart_kernel_info gauge",
+                f'needrestart_kernel_info{{running="{esc(found["KCUR"][0])}",expected="{esc(expected)}"}} 1']
+    out += ["# HELP needrestart_scan_success 1 if needrestart's last scan worked.",
+            "# TYPE needrestart_scan_success gauge",
+            f"needrestart_scan_success {ok}",
+            "# HELP needrestart_last_run_timestamp_seconds When lab-restart-metrics last ran.",
+            "# TYPE needrestart_last_run_timestamp_seconds gauge",
+            f"needrestart_last_run_timestamp_seconds {time.time():.0f}"]
+    # Renamed into place: node_exporter never reads half a file
+    tmp = f"{OUT}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(out) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, OUT)
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,9 @@
+# /etc/systemd/system/lab-restart-metrics.timer (roles/patching)
+[Unit]
+Description=Check for services running replaced code every 15 minutes
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60
+[Install]
+WantedBy=timers.target

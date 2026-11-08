@@ -14,10 +14,41 @@
 # tasks rather than collide; the apt collector behind the dashboards only reads.
 # docs/kb/issues/KB-0005-no-automatic-security-updates.md has why this role exists.
 
+# needrestart (in Ubuntu's images) runs after every apt run through its apt hook. With no
+# restart mode configured, Ubuntu's packaging puts it in "Ubuntu mode": it RESTARTS the
+# services an update touched by itself, unattended upgrades included. Here that would be
+# samba-ad-dc and dnsmasq on dc01 (every login and lease), dockerd on mgmt01 (the portal,
+# Guacamole and the monitoring with it), Proxmox's daemons on pve01, and a person's
+# session services on a workstation, at 06:00 with nobody watching. So: list only, and
+# FIRST, before any apt task in this role or a later one (this role runs first in
+# ansible/site.yml and ansible/local.yml for that reason). What needs a restart is
+# reported instead (lab-restart-metrics below; ServicesNeedRestart alert).
+# docs/kb/issues/KB-0155-patched-but-not-restarted.md
+- name: Directory for needrestart's settings
+  ansible.builtin.file:
+    path: /etc/needrestart/conf.d
+    state: directory
+    mode: "0755"
+
+- name: Make needrestart list, never restart
+  ansible.builtin.copy:
+    dest: /etc/needrestart/conf.d/50-lab.conf
+    content: |
+      # Managed by Ansible (roles/patching): report what needs a restart, never restart
+      # anything (an explicit mode also turns off Ubuntu's automatic-restart hook mode)
+      $nrconf{restart} = 'l';
+      # Kernel and microcode: report in the batch output only, never a dialog
+      $nrconf{kernelhints} = -1;
+      $nrconf{ucodehints} = 0;
+    mode: "0644"
+
 - name: Install unattended-upgrades
   ansible.builtin.apt:
     name: unattended-upgrades
     state: present
+    # This role runs before roles/base on a new workstation, so refresh old package lists
+    update_cache: true
+    cache_valid_time: 3600
     # apt-daily-upgrade may be installing updates right now: wait for it, don't fail
     lock_timeout: 600
 
@@ -43,3 +74,33 @@
     enabled: true
     state: started
   loop: [apt-daily.timer, apt-daily-upgrade.timer]
+
+# What still runs code an update replaced, as metrics: needrestart in batch, list-only
+# mode every 15 minutes (files/lab-restart-metrics). Security updates only protect a
+# service once it restarts; this is how a person knows which ones to restart.
+- name: Install needrestart
+  ansible.builtin.apt:
+    name: needrestart
+    state: present
+    lock_timeout: 600
+
+- name: Restart-needed metrics script
+  ansible.builtin.copy:
+    src: lab-restart-metrics
+    dest: /usr/local/libexec/lab-restart-metrics
+    mode: "0755"
+
+- name: Restart-needed metrics units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [lab-restart-metrics.service, lab-restart-metrics.timer]
+  register: restart_metrics_units
+
+- name: Restart-needed metrics every 15 minutes
+  ansible.builtin.systemd_service:
+    name: lab-restart-metrics.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ restart_metrics_units.changed }}"

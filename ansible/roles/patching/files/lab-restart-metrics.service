@@ -1,0 +1,8 @@
+# /etc/systemd/system/lab-restart-metrics.service (roles/patching): see
+# /usr/local/libexec/lab-restart-metrics
+[Unit]
+Description=Report what still runs code an update replaced (needrestart, list only)
+[Service]
+Type=oneshot
+Nice=10
+ExecStart=/usr/local/libexec/lab-restart-metrics
