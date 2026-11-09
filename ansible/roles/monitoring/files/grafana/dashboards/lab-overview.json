@@ -65,21 +65,21 @@
   {
    "title": "Portal admin",
    "type": "link",
-   "url": "/admin",
+   "url": "https://lab.radicallydecent.com/admin",
    "icon": "external link",
    "targetBlank": false
   },
   {
    "title": "Prometheus alerts",
    "type": "link",
-   "url": "/prometheus/alerts",
+   "url": "https://lab.radicallydecent.com/prometheus/alerts",
    "icon": "bolt",
    "targetBlank": true
   },
   {
    "title": "Prometheus targets",
    "type": "link",
-   "url": "/prometheus/targets",
+   "url": "https://lab.radicallydecent.com/prometheus/targets",
    "icon": "info",
    "targetBlank": true
   },
@@ -145,7 +145,7 @@
      "links": [
       {
        "title": "Prometheus alerts",
-       "url": "/prometheus/alerts",
+       "url": "https://lab.radicallydecent.com/prometheus/alerts",
        "targetBlank": true
       }
      ]
