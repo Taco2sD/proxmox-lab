@@ -37,102 +37,101 @@
 
 <section class="title">
   <h1>Linux workstation lab</h1>
-  <p class="sub">A prototype of a self-service workstation platform for a studio’s IT team.
+  <p class="sub">A working prototype of self-service Linux workstations for a studio. Staff request a
+    machine in the browser and get a ready, domain-joined workstation a few minutes later.
     Built in four days on one Windows PC.</p>
 </section>
 
 <section>
   <h2>What’s running</h2>
   <table>
-    <tr><td>pve01</td><td>Proxmox VE, nested in Hyper-V. Hosts everything below.</td></tr>
-    <tr><td>dc01</td><td>Samba Active Directory domain controller. Also DNS and DHCP.</td></tr>
-    <tr><td>mgmt01</td><td>Management container: the portal, the automation, Prometheus, Grafana, Guacamole.</td></tr>
-    <tr><td>Workstations</td><td>Ubuntu desktops and headless dev boxes, built on request. Seven roles.</td></tr>
-    <tr><td>VPS</td><td>The public entry point with the sign-in page. Connects in over a WireGuard tunnel;
-      the lab itself accepts no inbound connections.</td></tr>
+    <tr><td>pve01</td><td>Proxmox VE, running inside Hyper-V on the PC. Hosts all the machines below.</td></tr>
+    <tr><td>dc01</td><td>Samba Active Directory domain controller, also DNS and DHCP.</td></tr>
+    <tr><td>mgmt01</td><td>Management container: the self-service portal, the automation, monitoring
+      (Prometheus and Grafana) and browser access to the machines (Guacamole).</td></tr>
+    <tr><td>Workstations</td><td>Ubuntu desktops and headless development machines, in seven roles
+      such as artist, audio, programmer and infrastructure.</td></tr>
+    <tr><td>Public server</td><td>A small cloud server with the sign-in page. The lab connects out to it
+      over WireGuard, so nothing on the internet can reach the lab directly.</td></tr>
   </table>
 </section>
 
 <section>
   <h2>Requesting a workstation</h2>
-  <p class="muted">Someone picks a role on the portal. A few minutes later:</p>
+  <p class="muted">A staff member signs in to the portal and picks a role. A few minutes later:</p>
   <ol>
-    <li>An AD user account and computer account are created.</li>
-    <li>A DHCP reservation gives it a fixed address and name.</li>
-    <li>Proxmox clones the golden image, sized for the role.</li>
-    <li>On first boot it joins the domain by itself.</li>
-    <li>Ansible applies the role’s packages and settings.</li>
-    <li>It opens in the browser (terminal or desktop via Guacamole), or over SSH.</li>
+    <li>Their Active Directory account and the machine’s computer account exist.</li>
+    <li>The machine has a reserved address and a DNS name.</li>
+    <li>Proxmox has cloned a prepared base image, sized for the role.</li>
+    <li>On first boot, the machine joins the domain by itself.</li>
+    <li>Ansible installs the role’s software and settings.</li>
+    <li>It opens in the browser, as a terminal or a full desktop, or over SSH.</li>
   </ol>
-  <p class="muted">Each request is checked against a memory budget and a cap of 12 machines.
-    The admin page logs every action. New hires can also onboard themselves at /welcome
-    with a one-time sign-up link.</p>
+  <p class="muted">New hires get a one-time link to set up their own account and first workstation.
+    Requests are capped so the host can’t run out of memory, and an admin page records every action.</p>
 </section>
 
 <section>
   <h2>What happens automatically</h2>
   <ul>
-    <li><b>Domain join</b> with a one-time password. No admin credentials ever go on the machine.</li>
-    <li><b>DNS records</b> are created from the DHCP lease and removed when the machine is deleted.</li>
-    <li><b>Configuration</b> comes from the machine’s AD group. It re-checks against git every 30 minutes.</li>
-    <li><b>Monitoring</b> picks up new machines within a minute, with SSH and desktop checks. No manual setup.</li>
-    <li><b>Hibernated or deleted</b> machines drop out of monitoring without false alarms.</li>
+    <li><b>Domain join</b> uses a one-time password. No admin credentials are ever stored on a workstation.</li>
+    <li><b>DNS records</b> are created when a machine gets its address and removed when it’s deleted.</li>
+    <li><b>Software and settings</b> follow the machine’s role and are re-applied from git every
+      30 minutes, so manual changes don’t stick.</li>
+    <li><b>Monitoring</b> picks up a new machine within a minute, with no manual setup.</li>
+    <li><b>Hibernated or deleted</b> machines leave monitoring without false alarms.</li>
     <li><b>Idle machines</b> hibernate after 48 hours to free memory.</li>
-    <li><b>Deleting</b> removes the VM, AD accounts, DHCP reservation and DNS records together.</li>
+    <li><b>Deleting</b> a machine removes its VM, AD accounts, address reservation and DNS records together.</li>
   </ul>
 </section>
 
 <section>
   <h2>Monitoring</h2>
   <ul>
-    <li><b>Lab overview</b> in Grafana: alerts, service checks, memory and disk, every machine.</li>
-    <li><b>Machine page</b>: shows whether it’s a VM or a container, the CPU and memory limits Proxmox
-      puts on it, and how much of the host’s disk it uses.</li>
-    <li><b>Service checks</b> test the portal, Guacamole, AD, DNS and the sign-in page the way a user would.</li>
-    <li><b>Every alert</b> links to a runbook. CI rejects an alert rule that doesn’t have one.</li>
+    <li><b>Lab overview</b> in Grafana: active alerts, service health, and memory and disk for every machine.</li>
+    <li><b>One dashboard per machine</b>: CPU, memory and disk use, next to the limits Proxmox gives it.</li>
+    <li><b>Service checks</b> use the portal, browser access, AD, DNS and the sign-in page the way a user would.</li>
+    <li><b>Every alert</b> links to a runbook that says what to do. An alert without one can’t be deployed.</li>
   </ul>
 </section>
 
 <section>
   <h2>How a change reaches the lab</h2>
-  <p class="flow"><code>push</code> → <code>tools/check</code> → <code>stable</code> → reconciler, within a minute
-    → Ansible and OpenTofu make the lab match</p>
+  <p class="flow">Commit to git → automated checks → release branch → the lab applies it within a minute</p>
   <ul>
-    <li><b>CI:</b> every push to <code>main</code> and every pull request runs <code>tools/check</code>
-      on GitHub Actions. It’s the same script you run locally.</li>
-    <li><b>Promotion:</b> CI fast-forwards <code>stable</code> only to commits that passed.
-      <code>main</code> is checked but never deployed.</li>
-    <li><b>Pulled, not pushed:</b> git holds the desired state. The reconciler on mgmt01 and the
-      workstations’ <code>ansible-pull</code> fetch <code>stable</code> and apply it. GitHub can’t reach into the lab.</li>
-    <li><b>Continuous deployment:</b> a commit that passes goes live without anyone pressing deploy.
-      One human step: destroying a machine waits for an admin’s approval.</li>
-    <li>Dashboards, alert rules and runbooks are in the same repo and deploy the same way.</li>
+    <li><b>Git is the source of truth.</b> The servers, the workstation roles, the dashboards and the
+      alerts are all defined in one repository.</li>
+    <li><b>Every change is checked</b> on GitHub Actions. Only changes that pass move to the release
+      branch, <code>stable</code>, which is what the lab runs.</li>
+    <li><b>The lab pulls changes; nothing pushes into it.</b> GitHub holds no credentials and can’t
+      reach the lab.</li>
+    <li><b>No deploy button.</b> A change that passes goes live on its own. Deleting or replacing a
+      machine waits for an admin’s approval.</li>
   </ul>
 </section>
 
 <section>
-  <h2>What each step does</h2>
+  <h2>The checks and the deployment</h2>
   <div class="cols">
     <div>
-      <h3><code>tools/check</code>, on every push</h3>
+      <h3>Checks on every change</h3>
       <ul>
-        <li>Eight groups: yamllint, ansible-lint, shellcheck, ruff and the unit tests, inventory rules,
-          broken path references, the knowledge base, OpenTofu fmt and validate.</li>
-        <li><code>set -uo pipefail</code> without <code>-e</code>: it runs every group even after one fails,
-          then lists all the failures together.</li>
-        <li>Any failure exits 1, and <code>stable</code> doesn’t move.</li>
+        <li>Linting for YAML, Ansible, shell scripts and Python.</li>
+        <li>Unit tests for the portal and the automation.</li>
+        <li>Machine and role definitions: valid values, nothing used twice.</li>
+        <li>Validation of the OpenTofu code that defines the VMs.</li>
+        <li>One run reports every failure, not just the first.</li>
       </ul>
     </div>
     <div>
-      <h3><code>lab reconcile</code>, every minute on mgmt01</h3>
-      <ol>
-        <li>Skips the run if paused, or if another run holds the lock.</li>
-        <li>Fetches <code>stable</code> and compares it with the last deployed commit.</li>
-        <li>If it moved: <code>site.yml</code> for the servers, then OpenTofu for the VMs.</li>
-        <li>Every 30 minutes it applies the VMs anyway, which repairs drift. Safe to repeat.</li>
-        <li>A commit that failed isn’t retried every minute, only every 30 minutes.</li>
-        <li>Destroying or replacing a VM waits for an admin.</li>
-      </ol>
+      <h3>On the lab, every minute</h3>
+      <ul>
+        <li>A service on mgmt01 checks the release branch for a new commit.</li>
+        <li>If there is one, Ansible configures the servers, then OpenTofu creates or changes the VMs.</li>
+        <li>Every 30 minutes the VMs are re-applied anyway, undoing manual changes.</li>
+        <li>A commit that failed isn’t retried every minute.</li>
+        <li>Only one run at a time, and it can be paused for maintenance.</li>
+      </ul>
     </div>
   </div>
 </section>
@@ -140,11 +139,11 @@
 <section>
   <h2>What I learned</h2>
   <ul>
-    <li>Every problem found while building it is written up in the knowledge base:
-      71 issues, each with cause, fix and proof.</li>
-    <li>Example: reloading Docker containers with a signal marked them as manually stopped,
-      so monitoring stayed down after a reboot.</li>
-    <li>Example: the first “failed service” alert rule fired about 1,700 alerts at once.</li>
+    <li>I wrote up every problem I hit while building it: 71 so far, each with its cause, the fix
+      and how the fix was verified.</li>
+    <li>Example: restarting the monitoring containers the wrong way made Docker treat them as stopped
+      by hand, so monitoring didn’t come back after the host rebooted.</li>
+    <li>Example: the first alert rule for failed services fired about 1,700 alerts at once.</li>
   </ul>
   <p class="muted">github.com/Taco2sD/proxmox-lab</p>
 </section>
