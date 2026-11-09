@@ -106,7 +106,10 @@
     <li><b>CI</b> (GitHub Actions) runs linters, unit tests and inventory validation on every push to
       <code>main</code>. Only commits that pass are promoted to <code>stable</code>, the branch the lab runs.</li>
     <li><b>Pull-based (GitOps):</b> a systemd timer on mgmt01 checks <code>stable</code> every minute and
-      applies new commits: Ansible for the servers, OpenTofu for the VMs. GitHub never connects to the lab.</li>
+      applies new commits. Workstations pull <code>stable</code> themselves with <code>ansible-pull</code>
+      every 30 minutes. GitHub never connects to the lab.</li>
+    <li><b>One owner per piece:</b> OpenTofu creates and sizes the VMs (clone, CPU, memory, disk).
+      Ansible configures the servers, everything inside each workstation, and its AD and DHCP entries.</li>
     <li><b>Continuous deployment</b> with one manual gate: deleting or replacing a VM needs
       an admin’s approval.</li>
   </ul>
