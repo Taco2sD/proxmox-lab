@@ -23,9 +23,12 @@
   td { padding: 0.5em 1.2em 0.5em 0; border-bottom: 1px solid var(--line); vertical-align: top; }
   td:first-child { font-weight: 600; white-space: nowrap; }
   ol { padding-left: 1.4em; display: flex; flex-direction: column; gap: 1.2vh; }
-  code { font: 0.9em ui-monospace, Consolas, monospace; }
+  code { font: 0.9em ui-monospace, Consolas, monospace; white-space: nowrap; }
   footer { position: fixed; bottom: 3vh; left: 8vw; right: 8vw; display: flex; justify-content: space-between;
     font-size: 0.6em; color: var(--soft); }
+  h3 { font-size: 1.05em; line-height: 1.3; margin-bottom: 1.5vh; }
+  .flow { font-size: 1.05em; color: var(--accent); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 4vw; }
   #bar { position: fixed; top: 0; left: 0; height: 4px; background: var(--accent); transition: width .2s; }
 </style>
 </head>
@@ -61,7 +64,9 @@
     <li>Ansible applies the role’s packages and settings.</li>
     <li>It opens in the browser (terminal or desktop via Guacamole), or over SSH.</li>
   </ol>
-  <p class="muted">New hires can also onboard themselves at /welcome with a one-time sign-up link.</p>
+  <p class="muted">Each request is checked against a memory budget and a cap of 12 machines.
+    The admin page logs every action. New hires can also onboard themselves at /welcome
+    with a one-time sign-up link.</p>
 </section>
 
 <section>
@@ -89,14 +94,47 @@
 </section>
 
 <section>
-  <h2>Changes go through git</h2>
+  <h2>How a change reaches the lab</h2>
+  <p class="flow"><code>push</code> → <code>tools/check</code> → <code>stable</code> → reconciler, within a minute
+    → Ansible and OpenTofu make the lab match</p>
   <ul>
-    <li>Commit to <code>main</code> → CI checks it → <code>stable</code> moves forward.</li>
-    <li>The servers deploy <code>stable</code> automatically within a minute. Workstations pull it themselves.</li>
+    <li><b>CI:</b> every push to <code>main</code> and every pull request runs <code>tools/check</code>
+      on GitHub Actions. It’s the same script you run locally.</li>
+    <li><b>Promotion:</b> CI fast-forwards <code>stable</code> only to commits that passed.
+      <code>main</code> is checked but never deployed.</li>
+    <li><b>Pulled, not pushed:</b> git holds the desired state. The reconciler on mgmt01 and the
+      workstations’ <code>ansible-pull</code> fetch <code>stable</code> and apply it. GitHub can’t reach into the lab.</li>
+    <li><b>Continuous deployment:</b> a commit that passes goes live without anyone pressing deploy.
+      One human step: destroying a machine waits for an admin’s approval.</li>
     <li>Dashboards, alert rules and runbooks are in the same repo and deploy the same way.</li>
-    <li>Deleting a machine waits for an admin’s approval, even if a commit asks for it.</li>
-    <li>The admin page caps machines with a memory budget (max 12) and logs every action.</li>
   </ul>
+</section>
+
+<section>
+  <h2>What each step does</h2>
+  <div class="cols">
+    <div>
+      <h3><code>tools/check</code>, on every push</h3>
+      <ul>
+        <li>Eight groups: yamllint, ansible-lint, shellcheck, ruff and the unit tests, inventory rules,
+          broken path references, the knowledge base, OpenTofu fmt and validate.</li>
+        <li><code>set -uo pipefail</code> without <code>-e</code>: it runs every group even after one fails,
+          then lists all the failures together.</li>
+        <li>Any failure exits 1, and <code>stable</code> doesn’t move.</li>
+      </ul>
+    </div>
+    <div>
+      <h3><code>lab reconcile</code>, every minute on mgmt01</h3>
+      <ol>
+        <li>Skips the run if paused, or if another run holds the lock.</li>
+        <li>Fetches <code>stable</code> and compares it with the last deployed commit.</li>
+        <li>If it moved: <code>site.yml</code> for the servers, then OpenTofu for the VMs.</li>
+        <li>Every 30 minutes it applies the VMs anyway, which repairs drift. Safe to repeat.</li>
+        <li>A commit that failed isn’t retried every minute, only every 30 minutes.</li>
+        <li>Destroying or replacing a VM waits for an admin.</li>
+      </ol>
+    </div>
+  </div>
 </section>
 
 <section>
