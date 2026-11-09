@@ -39,19 +39,22 @@
   <h1>Linux workstation lab</h1>
   <p class="sub">Prototype of a self-service Linux workstation platform for a studio:
     a domain-joined workstation on request, in a few minutes.
-    Built in four days on a single Windows PC.</p>
+    Built in four days on a single home workstation.</p>
 </section>
 
 <section>
   <h2>What’s running</h2>
   <table>
-    <tr><td>pve01</td><td>Proxmox VE, nested in Hyper-V. Hosts dc01, mgmt01 and the workstations.</td></tr>
+    <tr><td>pve01</td><td>Proxmox VE, nested in Hyper-V on a Windows home workstation.
+      Hosts dc01, mgmt01 and the workstations.</td></tr>
     <tr><td>dc01</td><td>Samba Active Directory domain controller, plus DNS and DHCP.</td></tr>
     <tr><td>mgmt01</td><td>LXC container: self-service portal, automation (Ansible, OpenTofu),
       Prometheus, Grafana, Guacamole.</td></tr>
-    <tr><td>Workstations</td><td>Ubuntu desktops and headless dev boxes, in seven roles.</td></tr>
-    <tr><td>VPS</td><td>Public entry point with the sign-in page. The lab connects out to it over
-      WireGuard and accepts no inbound connections.</td></tr>
+    <tr><td>Workstations</td><td>Ubuntu desktops and headless dev boxes. Seven roles (artist,
+      programmer, audio and so on), each with its own software and VM size.</td></tr>
+    <tr><td>VPS</td><td>An existing VPS that already hosts a website, reused as the public entry
+      point and sign-in page. The lab connects out to it over WireGuard, so nothing at home
+      is exposed to the internet.</td></tr>
   </table>
 </section>
 
@@ -66,17 +69,17 @@
     <li>Ansible applies the role’s packages and settings.</li>
     <li>It opens in the browser via Guacamole (terminal or desktop), or over SSH.</li>
   </ol>
-  <p class="muted">Requests are checked against a memory budget and a cap of 12 machines, and every
-    action is logged. New hires can onboard themselves with a one-time sign-up link.</p>
+  <p class="muted">New hires can set up their own account and workstation from a one-time sign-up link.
+    Since everything shares one host, requests are capped by available memory and a 12-machine limit.</p>
 </section>
 
 <section>
   <h2>What happens automatically</h2>
   <ul>
-    <li><b>Domain join</b> with a one-time password. No admin credentials on the workstation.</li>
+    <li><b>Domain join</b> uses a one-time machine password, so no admin credentials reach the workstation.</li>
     <li><b>DNS records</b> follow DHCP: created with the lease, removed when the machine is deleted.</li>
-    <li><b>Configuration</b> comes from the machine’s role (an AD group), re-applied by
-      <code>ansible-pull</code> every 30 minutes.</li>
+    <li><b>Configuration</b> comes from the machine’s role (an AD group) and is re-applied by
+      <code>ansible-pull</code> every 30 minutes, which corrects drift.</li>
     <li><b>Monitoring</b> discovers new machines within a minute, including SSH and desktop checks.</li>
     <li><b>Hibernated or deleted</b> machines drop out of monitoring without false alarms.</li>
     <li><b>Idle machines</b> hibernate after 48 hours to free memory.</li>
@@ -88,8 +91,7 @@
   <h2>Monitoring</h2>
   <ul>
     <li><b>Lab overview</b> in Grafana: alerts, service checks, memory and disk across all machines.</li>
-    <li><b>Per-machine dashboard</b>: VM or container, the CPU and memory limits Proxmox sets,
-      and its share of the host’s disk.</li>
+    <li><b>Per-machine dashboard</b>: CPU, memory and disk use against the limits Proxmox sets for it.</li>
     <li><b>Service checks</b> test the portal, Guacamole, AD, DNS and the sign-in page the way a user would.</li>
     <li><b>Every alert</b> links to a runbook. CI rejects an alert rule without one.</li>
   </ul>
@@ -101,44 +103,20 @@
   <ul>
     <li><b>Git is the source of truth:</b> servers, workstation fleet and roles, dashboards,
       alert rules and runbooks.</li>
-    <li><b>CI</b> on GitHub Actions checks every push to <code>main</code> and every pull request.
-      Only passing commits are promoted to <code>stable</code>; <code>main</code> is never deployed.</li>
-    <li><b>Pull-based (GitOps):</b> the reconciler and the workstations’ <code>ansible-pull</code>
-      fetch <code>stable</code> and apply it. GitHub can’t reach into the lab.</li>
+    <li><b>CI</b> (GitHub Actions) runs linters, unit tests and inventory validation on every push to
+      <code>main</code>. Only commits that pass are promoted to <code>stable</code>, the branch the lab runs.</li>
+    <li><b>Pull-based (GitOps):</b> a systemd timer on mgmt01 checks <code>stable</code> every minute and
+      applies new commits: Ansible for the servers, OpenTofu for the VMs. GitHub never connects to the lab.</li>
     <li><b>Continuous deployment</b> with one manual gate: deleting or replacing a VM needs
       an admin’s approval.</li>
   </ul>
 </section>
 
 <section>
-  <h2>CI checks and the reconciler</h2>
-  <div class="cols">
-    <div>
-      <h3>CI</h3>
-      <ul>
-        <li>yamllint, ansible-lint, shellcheck, ruff</li>
-        <li>Python unit tests</li>
-        <li>Inventory rules: names, VM ID ranges, addresses, no duplicates, roles exist</li>
-        <li>OpenTofu fmt and validate</li>
-        <li>All checks run; every failure is reported in one pass</li>
-      </ul>
-    </div>
-    <div>
-      <h3>Reconciler (systemd timer, every minute)</h3>
-      <ul>
-        <li>New commit on <code>stable</code>: Ansible for the servers, then OpenTofu for the VMs</li>
-        <li>VMs re-applied every 30 minutes to correct drift; idempotent, so safe to repeat</li>
-        <li>A failed commit isn’t retried every minute</li>
-        <li>Locked against overlapping runs; can be paused for maintenance</li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<section>
   <h2>Knowledge base</h2>
   <ul>
-    <li>71 issues found during the build, each with cause, fix and verification.</li>
+    <li>Every issue hit during the build is documented in the repository: 71 entries, each with
+      cause, fix and how the fix was verified.</li>
     <li>Example: reloading Docker containers with a signal marked them as manually stopped,
       so monitoring stayed down after a reboot.</li>
     <li>Example: the first failed-service alert rule fired about 1,700 alerts at once.</li>
