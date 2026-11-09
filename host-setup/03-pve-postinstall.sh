@@ -4,8 +4,8 @@
 #   ssh root@10.10.10.10 'bash /root/03-pve-postinstall.sh'
 #
 # Does: repair the GRUB config the Gen 2 installer workaround leaves behind, switch to
-# the free no-subscription repository, full-upgrade. What comes after (dc01, mgmt01,
-# then everything through Ansible) is in docs/operations.md.
+# the free no-subscription repository, full-upgrade. What comes after (mgmt01
+# rebuilt, dc01 restored from backup) is in docs/operations.md.
 # Read through it before running - every line is fair game in an interview.
 set -euo pipefail
 
@@ -41,4 +41,4 @@ echo "==> Updating system"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get -y full-upgrade
 
-echo "Done. Next: dc01 and mgmt01 (docs/operations.md, \"Rebuilding mgmt01 from nothing\")."
+echo "Done. Next: mgmt01 (docs/operations.md, \"Rebuilding mgmt01 from nothing\")."

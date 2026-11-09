@@ -146,8 +146,9 @@ in its own log and journal unit. If a unit dies without finishing, the worker ma
 operation failed.
 
 **Addresses come from the VM ID.** Guests get the first free VM ID in the guest range
-(131–139); its IP and MAC follow (VM 1NN → 10.10.10.NN, BC:24:11:00:00:NN). The portal
-accepts at most four guests at a time (`max_guests`, pve01's memory).
+(131–159); its IP and MAC follow (VM 1NN → 10.10.10.NN, BC:24:11:00:00:NN). A new guest
+is admitted when its memory fits in `guest_memory_mb` next to all the others, with
+`max_guests` (12) as a count cap on top.
 
 **Two processes, two privilege levels.** The web side (`portal.py`, user `labportal`,
 sandboxed by systemd) can only reserve a username and drop a request file; it reads

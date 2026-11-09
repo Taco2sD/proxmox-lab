@@ -278,7 +278,7 @@ groups:
         annotations:
           runbook_url: https://github.com/Taco2sD/proxmox-lab/blob/main/docs/kb/runbooks/PortalWorkerStale.md
           summary: "The portal's worker hasn't checked on the machines for {{ $value | humanizeDuration }}"
-          description: "`systemctl status lab-portal-worker` and /var/log/lab-portal/ on mgmt01."
+          description: "`systemctl status lab-portal-worker` and `journalctl -u lab-portal-worker -n 100` on mgmt01."
 
       - alert: OperationFailureUnresolved
         # A failed operation (lab: build, delete, reimage, image build, reconcile) that nothing

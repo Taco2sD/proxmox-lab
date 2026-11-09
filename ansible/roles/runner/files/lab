@@ -3,7 +3,7 @@
 
 Deployed to mgmt01:/usr/local/bin/lab by roles/runner, next to lablib.py (the shared
 library: paths, settings, inventory rules, operations). docs/operations.md explains
-each command with examples.
+the everyday commands; docs/self-service.md the people and guest ones.
 
   lab status                show what exists vs. what should (read-only)
   lab doctor                check certificates, services, secrets, tunnel (read-only)

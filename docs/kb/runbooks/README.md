@@ -26,7 +26,7 @@ alert fires ──► runbook (what to check first)
                   ▼
            fix it, in git ──► issue page in ../issues/ (signal: <AlertName>)
                                    │
-                                   ├──► the runbook lists it under "Known issues" (generated)
+                                   ├──► the runbook lists it under "Past occurrences" (generated)
                                    └──► patterns: [...] ──► ../patterns/<slug>.md lists every issue
                                                             of that kind, across all alerts
 ```

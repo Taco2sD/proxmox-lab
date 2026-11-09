@@ -30,7 +30,7 @@ lab-console@999-...service: Consumed 350ms CPU time, 119.7M memory peak.
 
 The first scrape of pve01's node_exporter (systemd collector) after the monitoring went in.
 The per-unit alert rule of the time fired once per unit, ~1,700 alerts at once, which is
-[KB-0007](KB-0007-systemd-alert-storm.md). The Lab overview's "Firing alerts" stat read 1670.
+[KB-0007](KB-0007-per-unit-failed-alert-storm.md). The Lab overview's "Firing alerts" stat read 1670.
 
 ## Root cause
 
@@ -106,7 +106,7 @@ cleanly.
   ([per-connection-unit-pileup](../patterns/per-connection-unit-pileup.md)).
 - An expected refusal exits cleanly and says why; only real faults fail.
 - `SystemdUnitsFailed` is now one alert per machine with a count
-  ([KB-0007](KB-0007-systemd-alert-storm.md)), so the same kind of pileup shows up as
+  ([KB-0007](KB-0007-per-unit-failed-alert-storm.md)), so the same kind of pileup shows up as
   one alert with a big number.
 - Gap: with refusals no longer failing, the relay's own health isn't watched. A blackbox
   TCP probe of the console port of a running guest would watch it (suggested to the
