@@ -68,7 +68,7 @@ console_port_base: 6000
 # (ws<NN>, from the welcome page). Admission is by memory first: a new machine must fit
 # in guest_memory_mb with all the others (catalog/<role>.yml: size.memory_mb), which
 # leaves pve01 room for dc01, mgmt01 and itself. max_guests is the count cap on top.
-guest_memory_mb: 18432
+guest_memory_mb: 12288
 max_guests: 12
 # Per person, by kind of workstation (catalog/<role>.yml: kind): one graphical desktop,
 # and up to four headless dev/jump boxes

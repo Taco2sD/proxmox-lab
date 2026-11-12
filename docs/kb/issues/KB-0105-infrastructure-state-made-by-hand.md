@@ -24,7 +24,7 @@ these:
 | VM 105 (dc01): 2 cores / 2 GB, 16 GB disk, `startup: order=1`, `onboot` | pve01 `qm config 105` | No |
 | Proxmox ACME for pve.radicallydecent.com (account `default`, plugin `acmedns`) | pve01 `pvenode config` | No |
 | `cluster.fw` (enabled, policy ACCEPT) | pve01 | No |
-| pve01's own VM: 32 GB, 12 vCPU, `AutomaticStopAction Save` | Windows Hyper-V | host-setup/02-create-pve-vm.ps1 creates it with 12 GB; the rest was changed by hand |
+| pve01's own VM: 20 GB (32 until 2026-11-12), 12 vCPU, `AutomaticStopAction Save` | Windows Hyper-V | host-setup/02-create-pve-vm.ps1 creates it with 12 GB; the rest was changed by hand |
 | WireGuard `/etc/wireguard/lab.conf`, the VPS's nginx/oauth2-proxy | pve01, VPS | Secrets aside, partly (vps/README.md); the VPS is set up by hand |
 
 ## How it was found
